@@ -8,6 +8,8 @@ The root directory contains standalone JavaScript files that work in both Node.j
 
 - `WebUntis.js` - Core WebUntis API wrapper with timetable functionality
 - `Google.js` - Google services integration (Gmail, Calendar) 
+- `Sheets.js` - Sends Lehrstoff and Hausübung to the spreadsheet web app (optional)
+- `SheetWebApp.js` - Web app bound to the class spreadsheet that writes the cells (optional, separate project)
 - `Code.gs` - Complete automation starter with configuration
 - `AppsScript-Test.js` - Test functions and examples
 - `HomeAssistant.js` - Home Assistant integration (optional)
@@ -27,8 +29,9 @@ The root directory contains standalone JavaScript files that work in both Node.j
 #### Required Setup Order:
 1. **Create WebUntis.gs**: Copy the entire content from `WebUntis.js` into a new file named `WebUntis.gs`
 2. **Create Google.gs**: Copy the entire content from `Google.js` into a new file named `Google.gs`  
-3. **Create Code.gs**: Copy content from `Code.gs` into a new file named `Code.gs` (main automation)
-4. **Create Test.gs**: Copy content from `AppsScript-Test.js` and rename to `Test.gs` (optional, for testing)
+3. **Create Sheets.gs**: Copy the entire content from `Sheets.js` into a new file named `Sheets.gs` (optional, for the spreadsheet sync - see Step 3b)
+4. **Create Code.gs**: Copy content from `Code.gs` into a new file named `Code.gs` (main automation)
+5. **Create Test.gs**: Copy content from `AppsScript-Test.js` and rename to `Test.gs` (optional, for testing)
 
 #### Why Multiple Files Are Needed:
 - `WebUntis.gs` contains the core API functions like `getWebUntisApiInstance()` and `WebUntisAPI` class
@@ -41,6 +44,7 @@ The root directory contains standalone JavaScript files that work in both Node.j
 Your Google Apps Script Project/
 ├── WebUntis.gs          (Copy content from WebUntis.js)
 ├── Google.gs            (Copy content from Google.js)
+├── Sheets.gs            (Copy content from Sheets.js - optional)
 ├── Code.gs              (Copy content from Code.gs - main automation)
 └── Test.gs              (Copy content from AppsScript-Test.js - optional)
 ```
@@ -83,6 +87,61 @@ const CALENDAR_CONFIG = {
 };
 ```
 
+### Step 3b: Spreadsheet Sync (Lehrstoff and Hausübung, optional)
+
+The teaching content ("Lehrstoff") and homework ("Hausübung") of past lessons can be written into a class overview spreadsheet. This uses **two separate Apps Script projects**, so the automation never gets access to all your spreadsheets:
+
+| | Main project (this one, standalone) | Sheet web app (bound to the spreadsheet) |
+|---|---|---|
+| Files | `WebUntis.gs`, `Google.gs`, `Sheets.gs`, `Code.gs` | `SheetWebApp.gs` only |
+| Contains | WebUntis credentials, collects the data | Shared secret, writes the cells |
+| Permissions | External requests (plus Gmail/Calendar) | **Only this one spreadsheet** (`@OnlyCurrentDoc`) |
+
+Both the main project and Node.js send their data to the same web app URL.
+
+**Expected spreadsheet layout:**
+- One tab per subject, named like the WebUntis subject short name (`D`, `M`, `E`, ...). Subjects without a tab are skipped.
+- Row 2 contains the headers; lesson columns start with a weekday name (`Montag`, `Freitag - Doppelstunde`, ...).
+- Column D (`von`) contains the Monday of each week, one row per week.
+
+Text is written with the Lehrstoff in the first line and `HÜ: <Hausübung>` in its own line below, with text wrapping on so the row grows to fit. Existing cell content is never removed: Lehrstoff and each Hausübung are only appended (on a new line) if the cell doesn't already contain them, so the sync can run repeatedly.
+
+#### 1. Create the sheet web app (bound script)
+
+1. Open the spreadsheet → **Extensions → Apps Script** (you need edit access)
+2. Replace the content of `Code.gs` there with the content of `SheetWebApp.js` (or add it as `SheetWebApp.gs`)
+3. Set `SHEET_WEB_APP_SECRET` to a long random value (e.g. `openssl rand -hex 32`)
+4. **Deploy → New deployment** → gear icon → **Web app**
+   - Execute as: **Me**
+   - Who has access: **Anyone** (Node.js and the main project send no Google login; requests without the correct secret are rejected)
+5. Authorize when asked - the permission screen only lists access to *this* spreadsheet
+6. Copy the **Web app URL** (ending in `/exec`)
+
+**Never put WebUntis credentials into this bound script** - every editor of the spreadsheet can open it. The secret only allows writing to the sheet, which editors can do anyway.
+
+After changing `SheetWebApp.gs`, update the deployment (Deploy → Manage deployments → pencil icon → Version: New version → Deploy). The URL stays the same.
+
+#### 2. Configure the main project
+
+Add `Sheets.gs` (content of `Sheets.js`) and set `SHEET_CONFIG` in `Code.gs`:
+
+```javascript
+const SHEET_CONFIG = {
+    webAppUrl: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+    secret: 'same value as SHEET_WEB_APP_SECRET',
+    syncDaysBack: 7,                               // Days back to sync
+    schoolYearStart: '2026-09-07',                 // Used by backfillSheet()
+};
+```
+
+Run `syncSheet()` to test. To fill the whole school year, run `backfillSheet()` once (it makes one request per lesson; if it hits the 6 minute limit, run it in parts by moving `schoolYearStart`).
+
+**Tip:** Test with a copy of the spreadsheet first (File → Make a copy copies the bound script too) and deploy the web app from the copy.
+
+#### 3. Node.js (optional)
+
+Put the same URL and secret into `config.js` → `SHEET_CONFIG` and run `node StartNode.js sheet` (or `node StartNode.js sheet 30` for the last 30 days). No Google credentials are needed.
+
 ### Step 4: Test Your Setup
 
 1. **Run a test function**:
@@ -112,6 +171,7 @@ When you first run functions, Google will ask for permissions:
 
 - **Gmail API**: For sending homework emails
 - **Calendar API**: For timetable sync
+- **Spreadsheet** (bound web app only): Access to the class spreadsheet
 - **External requests**: For WebUntis API calls
 
 Click "Allow" for each permission request.
@@ -180,11 +240,15 @@ const { WebUntisAPI } = require('./WebUntis.js');
 - `sendNotifications()` - Send homework email notifications
 - `syncHomework()` - Sync homework to calendar
 - `syncTimetable()` - Sync timetable to calendar
+- `syncSheet()` - Write Lehrstoff and Hausübung of the last days to the class spreadsheet
+- `backfillSheet()` - Same as `syncSheet()` since the start of the school year
 
 ### Individual Functions
 - `sendHomeworkEmail()` - Send homework reminders via email
 - `syncHomeworkToCalendar()` - Add homework as calendar events (full workflow)
 - `syncTimetableToCalendarWorkflow()` - Sync timetable to calendar (full workflow)
+- `syncLessonsToSheet()` - Send Lehrstoff and Hausübung to the spreadsheet web app (full workflow)
+- `doPost()` - Endpoint of the sheet web app (`SheetWebApp.gs`, bound project)
 
 ### Test Functions
 - `quickTest()` - Basic API functionality test

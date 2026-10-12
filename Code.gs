@@ -4,9 +4,10 @@
  * This file provides complete automation setup for Google Apps Script environment.
  * 
  * Instructions:
- * 1. Copy WebUntis.js and Google.js content to a new Google Apps Script project
+ * 1. Copy WebUntis.js, Google.js and Sheets.js content to a new Google Apps Script project
+ *    (SheetWebApp.js goes into a separate script bound to the class spreadsheet)
  * 2. Update the config objects below with your credentials
- * 3. Run runDaily() for complete automation (email + calendar sync)
+ * 3. Run runDaily() for complete automation (email + calendar sync + sheet sync)
  *    OR run individual functions like quickTest() for testing
  * 
  * Main Functions:
@@ -14,17 +15,20 @@
  * - sendNotifications() - Email homework reminders
  * - syncHomework() - Sync homework to calendar
  * - syncTimetable() - Sync timetable to calendar
+ * - syncSheet() - Write Lehrstoff and Hausübung to the class spreadsheet
+ * - backfillSheet() - Same as syncSheet() for the whole school year
  * - quickTest() - Test WebUntis API connection
  */
 
-// Test configurations
+// WebUntis Configuration
 const UNTIS_CONFIG = {
-    school: '<YOUR_SCHOOL_NAME>',        // Your school identifier
-    username: '<YOUR_USERNAME>',         // Your WebUntis username  
-    password: '<YOUR_PASSWORD>',         // Your WebUntis password
-    server: '<YOUR_WEBUNTIS_SERVER>',    // Your server (change if different)
-    resourceId: '<YOUR_STUDENT_RESOURCE_ID>' // Your student resource ID (found in timetable URL)
+    school: '<YOUR_SCHOOL_NAME>',           // Your school identifier from WebUntis URL
+    username: '<YOUR_USERNAME>',            // Your WebUntis username
+    password: '<YOUR_PASSWORD>',            // Your WebUntis password
+    server: '<YOUR_WEBUNTIS_SERVER>',       // Usually something like 'demo.webuntis.com' or 'your-school.webuntis.com'
+    resourceId: '<YOUR_STUDENT_RESOURCE_ID>' // Your student resource ID (found in timetable URL, usually a number)
 };
+
 
 const HA_CONFIG = {
     url: '<YOUR_HOME_ASSISTANT_URL>',              // Replace with your Home Assistant URL
@@ -55,6 +59,13 @@ const CALENDAR_CONFIG = {
     },
 };
 
+const SHEET_CONFIG = {
+    webAppUrl: '<YOUR_SHEET_WEB_APP_URL>',         // /exec URL of SheetWebApp.gs deployed in the class spreadsheet
+    secret: '<CHOOSE_A_LONG_RANDOM_SECRET>',  // Must match SHEET_WEB_APP_SECRET in SheetWebApp.gs
+    syncDaysBack: 7,                               // How many days back to sync Lehrstoff and Hausübung
+    schoolYearStart: '2026-09-07',                 // Used by backfillSheet()
+};
+
 
 function runDaily(){
     //Step 1: Notify about homework
@@ -62,6 +73,9 @@ function runDaily(){
   
     //Step 2: Sync the homework
     syncCalendar();
+
+    //Step 3: Write Lehrstoff and Hausübung to the class spreadsheet
+    syncSheet();
 }
 
 function sendNotifications() {
@@ -87,6 +101,18 @@ function syncHomework(){
 function syncTimetable(){
   console.log('📅 Syncing timetable to calendar...');
     syncTimetableToCalendarWorkflow(UNTIS_CONFIG, CALENDAR_CONFIG.timetable.calendarId, CALENDAR_CONFIG.timetable.syncDaysAhead);
+}
+
+function syncSheet(){
+  console.log('📝 Syncing Lehrstoff and Hausübung to spreadsheet...');
+  syncLessonsToSheet(UNTIS_CONFIG, SHEET_CONFIG, SHEET_CONFIG.syncDaysBack);
+}
+
+function backfillSheet(){
+  // Many requests (one per lesson) - if this hits the 6 minute limit, temporarily change schoolYearStart and run it in parts
+  const daysBack = Math.ceil((new Date() - new Date(SHEET_CONFIG.schoolYearStart)) / (24 * 60 * 60 * 1000));
+  console.log(`📝 Backfilling the last ${daysBack} days to spreadsheet...`);
+  syncLessonsToSheet(UNTIS_CONFIG, SHEET_CONFIG, daysBack);
 }
 
 

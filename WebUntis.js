@@ -459,8 +459,13 @@ class WebUntisAPI {
                 console.log(`📚 Processing entry ${entryIndex + 1}/${day.gridEntries.length} for ${day.date}`);
 
                 // Skip cancelled lessons if option is set
+                // Positions differ between schools, so look elements up by type
+                const subjectElement = WebUntisAPI.findTimetableElement(entry, 'SUBJECT', 'position2');
+                const teacherElement = WebUntisAPI.findTimetableElement(entry, 'TEACHER', 'position1');
+                const roomElement = WebUntisAPI.findTimetableElement(entry, 'ROOM', 'position3');
+
                 if (opts.skipCancelled && entry.status === 'CANCELLED') {
-                    console.log(`⏭️ Skipping cancelled lesson: ${entry.position2?.[0]?.current?.displayName || 'Unknown Subject'}`);
+                    console.log(`⏭️ Skipping cancelled lesson: ${subjectElement?.displayName || 'Unknown Subject'}`);
                     skippedCancelled++;
                     return;
                 }
@@ -474,12 +479,12 @@ class WebUntisAPI {
                         endTime: new Date(entry.duration.end),
                         type: entry.type,
                         status: entry.status,
-                        teacher: entry.position1?.[0]?.current?.displayName || 'Unknown Teacher',
-                        teacherLong: entry.position1?.[0]?.current?.longName || '',
-                        subject: entry.position2?.[0]?.current?.displayName || 'Unknown Subject',
-                        subjectLong: entry.position2?.[0]?.current?.longName || '',
-                        room: entry.position3?.[0]?.current?.displayName || 'Unknown Room',
-                        roomLong: entry.position3?.[0]?.current?.longName || '',
+                        teacher: teacherElement?.displayName || 'Unknown Teacher',
+                        teacherLong: teacherElement?.longName || '',
+                        subject: subjectElement?.displayName || 'Unknown Subject',
+                        subjectLong: subjectElement?.longName || '',
+                        room: roomElement?.displayName || 'Unknown Room',
+                        roomLong: roomElement?.longName || '',
                         icons: entry.icons || [],
                         hasHomework: (entry.icons || []).includes('HOMEWORK'),
                         isExam: entry.type === 'EXAM',
@@ -518,6 +523,122 @@ class WebUntisAPI {
 
         console.log(`✅ Returning ${lessons.length} processed lessons`);
         return lessons;
+    }
+
+    /**
+     * Find a timetable element (subject, teacher, room) of an entry by its type
+     * @param {Object} entry - Raw timetable grid entry
+     * @param {string} type - Element type: 'SUBJECT', 'TEACHER' or 'ROOM'
+     * @param {string} fallbackPosition - Position to use if no element has a type
+     * @returns {Object|null} The element's current data (displayName, longName, ...)
+     */
+    static findTimetableElement(entry, type, fallbackPosition) {
+        for (let i = 1; i <= 7; i++) {
+            const element = (entry[`position${i}`] || []).find(p => p.current?.type === type);
+            if (element) return element.current;
+        }
+        return entry[fallbackPosition]?.[0]?.current || null;
+    }
+
+    /**
+     * Get the teaching content ("Lehrstoff") of a lesson from the class register
+     * @param {Object} lesson - Processed lesson object from processTimetableData
+     * @returns {Promise<string>} Teaching content or empty string if none was entered
+     */
+    async getTeachingContent(lesson) {
+        const headers = {
+            'Cookie': `JSESSIONID=${this.sessionId}`,
+            'User-Agent': 'WebUntisAPI/1.0'
+        };
+
+        if (this.bearerToken) {
+            headers['Authorization'] = `Bearer ${this.bearerToken}`;
+        }
+
+        // The endpoint expects local date-times without timezone suffix
+        const toLocalIso = (date) => `${WebUntisAPI.formatDateForAPI(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:00`;
+        const url = `${this.apiBaseUrl}/rest/view/v2/calendar-entry/detail?elementId=${this.config.resourceId}&elementType=5` +
+            `&startDateTime=${toLocalIso(lesson.startTime)}&endDateTime=${toLocalIso(lesson.endTime)}&homeworkOption=DUE`;
+
+        const response = await this.makeFetch(url, {
+            method: 'GET',
+            headers: headers
+        });
+
+        if (!response.ok) {
+            console.log(`⚠️ Could not get lesson details for ${lesson.subject} on ${lesson.date} (status ${response.status})`);
+            return '';
+        }
+
+        const data = await response.json();
+        return (data.calendarEntries?.[0]?.teachingContent || '').trim();
+    }
+
+    /**
+     * Collect teaching content ("Lehrstoff") and homework ("Hausübung") per subject and day
+     * for the last N days, e.g. to fill a class overview spreadsheet
+     * @param {number} daysBack - Number of days to look back including today (default: 7)
+     * @returns {Promise<Array>} Entries like { subject, date: 'YYYY-MM-DD', contents: [], homeworks: [], text: '<Lehrstoff>\nHÜ: <Hausübung>' }
+     */
+    async getLessonSheetEntries(daysBack = 7) {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - daysBack);
+
+        const groups = new Map();
+        const getGroup = (subject, date) => {
+            const key = `${subject}|${date}`;
+            if (!groups.has(key)) {
+                groups.set(key, { subject, date, contents: [], homeworks: [] });
+            }
+            return groups.get(key);
+        };
+        const addUnique = (list, text) => {
+            const trimmed = (text || '').trim();
+            if (trimmed && !list.includes(trimmed)) list.push(trimmed);
+        };
+
+        // 1. Lehrstoff from the class register, one request per lesson
+        const timetableData = await this.getTimetableData(startDate, endDate);
+        const lessons = this.processTimetableData(timetableData, { skipCancelled: true }) || [];
+        for (const lesson of lessons) {
+            const content = await this.getTeachingContent(lesson);
+            addUnique(getGroup(lesson.subject, lesson.date.substring(0, 10)).contents, content);
+        }
+
+        // 2. Hausübung, assigned to the lesson day it was given on
+        const homeworkData = await this.getHomework(WebUntisAPI.formatDate(startDate), WebUntisAPI.formatDate(endDate));
+        const lessonSubjects = new Map((homeworkData.lessons || []).map(l => [l.id, l.subject]));
+        const firstDay = parseInt(WebUntisAPI.formatDate(startDate));
+        const lastDay = parseInt(WebUntisAPI.formatDate(endDate));
+        (homeworkData.homeworks || [])
+            .filter(hw => hw.date >= firstDay && hw.date <= lastDay && lessonSubjects.has(hw.lessonId))
+            .forEach(hw => {
+                const dateStr = hw.date.toString();
+                const date = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+                addUnique(getGroup(lessonSubjects.get(hw.lessonId), date).homeworks, hw.text);
+            });
+
+        // 3. Keep the parts separately so a sheet can check which of them it already contains
+        return Array.from(groups.values())
+            .filter(g => g.contents.length > 0 || g.homeworks.length > 0)
+            .map(g => ({
+                ...g,
+                text: WebUntisAPI.formatLessonSheetText(g.contents, g.homeworks)
+            }))
+            .sort((a, b) => a.date.localeCompare(b.date) || a.subject.localeCompare(b.subject));
+    }
+
+    /**
+     * Build the cell text of a lesson: Lehrstoff in the first line, "HÜ: <Hausübung>" in the next line
+     * @param {Array<string>} contents - Teaching contents of the day
+     * @param {Array<string>} homeworks - Homework texts of the day
+     * @returns {string} Cell text
+     */
+    static formatLessonSheetText(contents, homeworks) {
+        return [contents.join(' / '), homeworks.length > 0 ? `HÜ: ${homeworks.join('; ')}` : '']
+            .filter(Boolean)
+            .join('\n');
     }
 
     /**

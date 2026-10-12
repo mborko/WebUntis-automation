@@ -71,9 +71,17 @@ const MAIL_NOTIFICATION_CONFIG = {
     }
 };
 
+// Google Sheet Configuration (Node.js) - Lehrstoff and Hausübung are sent to the web app bound to the class
+// spreadsheet, which writes them into the sheet (see SheetWebApp.js and docs/GOOGLE_APPS_SCRIPT_DEPLOYMENT.md)
+const SHEET_CONFIG = {
+    webAppUrl: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec', // /exec URL of SheetWebApp.gs deployed in the class spreadsheet
+    secret: 'YOUR_SHARED_SECRET',                  // Must match SHEET_WEB_APP_SECRET in SheetWebApp.gs
+    syncDaysBack: 7,                               // How many days back to sync Lehrstoff and Hausübung
+};
+
 // Export for Node.js
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG };
+    module.exports = { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG };
 }
 
 /**
@@ -105,7 +113,12 @@ if (typeof module !== 'undefined' && module.exports) {
  *    - Create Service Account or OAuth2 credentials
  *    - Download credentials JSON and extract the required fields
  * 
- * 5. Security:
+ * 5. Google Sheet Setup (Node.js):
+ *    - In the spreadsheet: Extensions → Apps Script, paste SheetWebApp.js as SheetWebApp.gs
+ *    - Deploy it as web app (Execute as: Me, Access: Anyone)
+ *    - Copy the /exec URL to webAppUrl and use the same secret as SHEET_WEB_APP_SECRET
+ * 
+ * 6. Security:
  *    - Never commit actual credentials to version control
  *    - Add config.js to .gitignore
  *    - Use environment variables in production

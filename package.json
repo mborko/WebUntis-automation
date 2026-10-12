@@ -1,0 +1,30 @@
+{
+  "name": "webuntis-automation",
+  "version": "1.0.0",
+  "description": "WebUntis API wrapper with Google (Gmail, Calendar) and Home Assistant integration for homework notifications and timetable sync",
+  "main": "StartNode.js",
+  "scripts": {
+    "start": "node StartNode.js start",
+    "test": "node StartNode.js test",
+    "quick": "node StartNode.js quick",
+    "sheet": "node StartNode.js sheet"
+  },
+  "keywords": [
+    "webuntis",
+    "untis",
+    "homework",
+    "google-calendar",
+    "home-assistant"
+  ],
+  "author": "Michael Borko",
+  "license": "Apache-2.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "googleapis": "^185.0.0",
+    "node-fetch": "^2.7.0",
+    "nodemailer": "^10.1.0"
+  }
+}

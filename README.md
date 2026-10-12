@@ -6,6 +6,7 @@ A comprehensive WebUntis API wrapper with Google Apps Script and Home Assistant 
 
 - **WebUntis API Access**: Complete homework and timetable retrieval
 - **Google Apps Script Integration**: Email notifications and calendar sync
+- **Google Sheet Sync**: Writes Lehrstoff and Hausübung of past lessons into a class spreadsheet
 - **Home Assistant Integration**: Smart home notifications and automation
 - **Session Management**: Efficient API connection reuse
 - **Flexible Deployment**: Works in both Node.js and Google Apps Script environments
@@ -36,6 +37,8 @@ See the [full deployment guide](docs/GOOGLE_APPS_SCRIPT_DEPLOYMENT.md) for compl
 ### Core API Files
 - `WebUntis.js` - WebUntis API wrapper and session management
 - `Google.js` - Google services integration (Gmail, Calendar)
+- `Sheets.js` - Lehrstoff/Hausübung sync to a Google Sheet (Apps Script and Node.js)
+- `SheetWebApp.js` - Web app bound to the class spreadsheet that writes the cells (only needs access to that one sheet)
 - `HomeAssistant.js` - Home Assistant integration and automation
 - `Examples.js` - Usage examples and automation functions
 
@@ -111,13 +114,14 @@ await sendHomeworkToHomeAssistant(MY_CONFIG, HA_CONFIG, 3);
 
 ### For Node.js
 1. Install dependencies: `npm install`
-2. Update configuration in `StartNode.js`
+2. Copy `config.template.js` to `config.js` and add your credentials
 3. Run: `node StartNode.js`
 
 Available commands:
 - `npm start` - Run full automation
 - `npm test` - Test configuration
 - `npm run quick` - Quick homework check
+- `npm run sheet` - Sync Lehrstoff and Hausübung to the Google Sheet (`node StartNode.js sheet 30` for the last 30 days)
 
 ## License
 

@@ -10,6 +10,8 @@ yarn-error.log*
 
 # Google Service Account keys
 *.json
+!package.json
+!package-lock.json
 service-account-*.json
 credentials.json
 
@@ -48,3 +50,7 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local copies of Apps Script files with real credentials
+*.local.gs
+*.local.js
