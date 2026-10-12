@@ -21,6 +21,7 @@
  *   - Column D ("von") = Monday of the week of that row
  *
  * Existing cell content is kept; Lehrstoff and each Hausübung are only appended if not already contained.
+ * The regular teacher (e.g. "Wohlgenannt Claudia (WOH)") is written to F1 of a tab if F1 is empty.
  */
 
 const SHEET_WEB_APP_SECRET = '<CHOOSE_A_LONG_RANDOM_SECRET>'; // Must match SHEET_CONFIG.secret
@@ -29,10 +30,11 @@ const SHEET_WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag
 const SHEET_HEADER_ROW = 2;          // Row with "KW | UW | von | Tag | Montag | ..."
 const SHEET_WEEK_START_COLUMN = 4;   // Column D ("von") holds the Monday of each week
 const SHEET_MIN_ROW_HEIGHT = 37;     // Minimum height (pixels) of rows with inserted text
+const SHEET_TEACHER_CELL = 'F1';     // Cell for the teacher name, only filled if empty
 
 /**
  * Web app endpoint
- * @param {Object} e - POST event with JSON body { secret, entries }
+ * @param {Object} e - POST event with JSON body { secret, entries, teachers }
  * @returns {TextOutput} JSON result
  */
 function doPost(e) {
@@ -50,7 +52,10 @@ function doPost(e) {
             return respond({ success: false, error: 'Missing entries' });
         }
 
-        return respond(applyLessonEntriesToSpreadsheet(SpreadsheetApp.getActiveSpreadsheet(), request.entries));
+        const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+        const result = applyLessonEntriesToSpreadsheet(spreadsheet, request.entries);
+        result.teachersWritten = applyTeachersToSpreadsheet(spreadsheet, request.teachers || {});
+        return respond(result);
     } catch (error) {
         return respond({ success: false, error: error.toString() });
     }
@@ -96,6 +101,30 @@ function getMissingSheetText(existing, entry) {
     return [contents.join(' / '), homeworks.length > 0 ? `HÜ: ${homeworks.join('; ')}` : '']
         .filter(Boolean)
         .join('\n');
+}
+
+/**
+ * Write the teacher name of each subject into its tab, only where the teacher cell is empty
+ * @param {Spreadsheet} spreadsheet - This spreadsheet
+ * @param {Object} teachers - Subject short name -> "Surname Firstname (SHORT)"
+ * @returns {number} Number of teacher names written
+ */
+function applyTeachersToSpreadsheet(spreadsheet, teachers) {
+    let written = 0;
+
+    Object.entries(teachers).forEach(([subject, teacher]) => {
+        const sheet = spreadsheet.getSheetByName(subject);
+        if (!sheet || !teacher) return;
+
+        const cell = sheet.getRange(SHEET_TEACHER_CELL);
+        if (String(cell.getValue()).trim() === '') {
+            cell.setValue(teacher);
+            console.log(`👤 ${subject}: ${teacher}`);
+            written++;
+        }
+    });
+
+    return written;
 }
 
 /**

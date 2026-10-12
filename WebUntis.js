@@ -575,6 +575,76 @@ class WebUntisAPI {
     }
 
     /**
+     * Get the regular teacher of each subject with full name, e.g. { D: 'Wohlgenannt Claudia (WOH)' }
+     * The regular teacher is taken from the timetable (substitutes are ignored),
+     * the full name from the office hours ("Sprechstunden") list
+     * @param {number} daysBack - Number of days of timetable to look at (default: 28)
+     * @returns {Promise<Object>} Subject short name -> "Surname Firstname (SHORT)"
+     */
+    async getSubjectTeachers(daysBack = 28) {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - daysBack);
+
+        // 1. Count the regular teacher of each subject; for substituted lessons the regular teacher is "removed"
+        const counts = {};
+        const timetableData = await this.getTimetableData(startDate, endDate);
+        (this.processTimetableData(timetableData) || []).forEach(lesson => {
+            for (let i = 1; i <= 7; i++) {
+                (lesson.rawEntry[`position${i}`] || []).forEach(element => {
+                    const regular = element.current?.type === 'TEACHER' && element.current.status === 'REGULAR'
+                        ? element.current
+                        : (element.removed?.type === 'TEACHER' ? element.removed : null);
+                    if (regular?.shortName) {
+                        counts[lesson.subject] = counts[lesson.subject] || {};
+                        counts[lesson.subject][regular.shortName] = (counts[lesson.subject][regular.shortName] || 0) + 1;
+                    }
+                });
+            }
+        });
+
+        // 2. Full names from the office hours list, e.g. "Wohlgenannt Claudia (WOH)"
+        const fullNames = new Map();
+        try {
+            const headers = {
+                'Cookie': `JSESSIONID=${this.sessionId}`,
+                'User-Agent': 'WebUntisAPI/1.0'
+            };
+            if (this.bearerToken) {
+                headers['Authorization'] = `Bearer ${this.bearerToken}`;
+            }
+
+            const response = await this.makeFetch(`${this.apiBaseUrl}/public/officehours/hours?date=${WebUntisAPI.formatDate(endDate)}`, {
+                method: 'GET',
+                headers: headers
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            (data.data || []).forEach(officeHour => {
+                const match = /\(([^)]+)\)\s*$/.exec(officeHour.teacher || '');
+                if (match) fullNames.set(match[1], officeHour.teacher.trim());
+            });
+        } catch (error) {
+            console.log(`⚠️ Could not get office hours for teacher names: ${error.toString()}`);
+        }
+
+        // 3. Most frequent regular teacher per subject, only if the full name is known
+        const teachers = {};
+        Object.entries(counts).forEach(([subject, teacherCounts]) => {
+            const shortName = Object.keys(teacherCounts).sort((a, b) => teacherCounts[b] - teacherCounts[a])[0];
+            if (fullNames.has(shortName)) {
+                teachers[subject] = fullNames.get(shortName);
+            } else {
+                console.log(`⚠️ No full name found for teacher ${shortName} (${subject})`);
+            }
+        });
+        return teachers;
+    }
+
+    /**
      * Collect teaching content ("Lehrstoff") and homework ("Hausübung") per subject and day
      * for the last N days, e.g. to fill a class overview spreadsheet
      * @param {number} daysBack - Number of days to look back including today (default: 7)

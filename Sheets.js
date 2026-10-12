@@ -15,10 +15,11 @@
  *
  * @param {Object} sheetConfig - Sheet configuration with webAppUrl and secret
  * @param {Array} entries - Entries from api.getLessonSheetEntries()
+ * @param {Object} teachers - Teacher names per subject from api.getSubjectTeachers()
  * @returns {Promise<Object>} Result of the web app: written, unchanged, skipped, unmatched
  */
-async function sendLessonEntriesToWebApp(sheetConfig, entries) {
-    const body = JSON.stringify({ secret: sheetConfig.secret, entries });
+async function sendLessonEntriesToWebApp(sheetConfig, entries, teachers = {}) {
+    const body = JSON.stringify({ secret: sheetConfig.secret, entries, teachers });
     let status;
     let responseText;
 
@@ -71,9 +72,10 @@ async function syncLessonsToSheet(config, sheetConfig, daysBack = 7) {
 
         const api = await getWebUntisApiInstance(config);
         const entries = await api.getLessonSheetEntries(daysBack);
-        const result = await sendLessonEntriesToWebApp(sheetConfig, entries);
+        const teachers = await api.getSubjectTeachers();
+        const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
 
-        console.log(`✅ Sheet sync done! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell`);
+        console.log(`✅ Sheet sync done! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell, ${result.teachersWritten || 0} teacher names added`);
         await clearWebUntisApiInstance();
         return result;
     } catch (error) {
@@ -98,9 +100,10 @@ async function syncLessonsToSheetNodejs(config, sheetConfig, daysBack = 7) {
     console.log(`📝 Collecting Lehrstoff and Hausübung of the last ${daysBack} days...`);
     const api = await getWebUntisApiInstance(config);
     const entries = await api.getLessonSheetEntries(daysBack);
+    const teachers = await api.getSubjectTeachers();
     console.log(`📤 Sending ${entries.length} entries to the spreadsheet web app...`);
 
-    return await sendLessonEntriesToWebApp(sheetConfig, entries);
+    return await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
 }
 
 // Export functions for Node.js

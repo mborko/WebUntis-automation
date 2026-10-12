@@ -173,7 +173,7 @@ async function StartNode() {
         if (isSheetConfigured()) {
             try {
                 const result = await syncLessonsToSheetNodejs(UNTIS_CONFIG, SHEET_CONFIG, SHEET_CONFIG.syncDaysBack);
-                console.log(`✅ Sheet sync successful! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell`);
+                console.log(`✅ Sheet sync successful! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell, ${result.teachersWritten || 0} teacher names added`);
             } catch (error) {
                 console.log('⚠️ Sheet sync failed:', error.message);
             }
@@ -260,7 +260,7 @@ async function syncSheet(daysBack = SHEET_CONFIG.syncDaysBack || 7) {
     
     try {
         const result = await syncLessonsToSheetNodejs(UNTIS_CONFIG, SHEET_CONFIG, daysBack);
-        console.log(`✅ Sheet sync successful! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell`);
+        console.log(`✅ Sheet sync successful! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell, ${result.teachersWritten || 0} teacher names added`);
     } catch (error) {
         console.error('❌ Sheet sync failed:', error.toString());
     }

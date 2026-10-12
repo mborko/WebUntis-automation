@@ -99,10 +99,11 @@ The teaching content ("Lehrstoff") and homework ("Hausübung") of past lessons c
 
 Both the main project and Node.js send their data to the same web app URL.
 
-**Expected spreadsheet layout:**
+**Expected spreadsheet layout** (an empty template is in [`example/class-sheet-template.xlsx`](../example/class-sheet-template.xlsx), import it via File → Import in Google Sheets):
 - One tab per subject, named like the WebUntis subject short name (`D`, `M`, `E`, ...). Subjects without a tab are skipped.
 - Row 2 contains the headers; lesson columns start with a weekday name (`Montag`, `Freitag - Doppelstunde`, ...).
 - Column D (`von`) contains the Monday of each week, one row per week.
+- Cell F1 contains the regular teacher, e.g. `Wohlgenannt Claudia (WOH)`. The sync fills it from the WebUntis office hours ("Sprechstunden") list, but only if F1 is empty. Substitute teachers are ignored.
 
 Text is written with the Lehrstoff in the first line and `HÜ: <Hausübung>` in its own line below, with text wrapping on so the row grows to fit. Existing cell content is never removed: Lehrstoff and each Hausübung are only appended (on a new line) if the cell doesn't already contain them, so the sync can run repeatedly.
 
