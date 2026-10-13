@@ -619,7 +619,10 @@ class WebUntisAPI {
         }
 
         // 2. Hausübung, assigned to the lesson day it was given on
-        const homeworkData = await this.getHomework(WebUntisAPI.formatDate(startDate), WebUntisAPI.formatDate(endDate));
+        // The endpoint filters by due date, so look ahead to also get homework given recently but due later
+        const dueEndDate = new Date();
+        dueEndDate.setDate(endDate.getDate() + 60);
+        const homeworkData = await this.getHomework(WebUntisAPI.formatDate(startDate), WebUntisAPI.formatDate(dueEndDate));
         const lessonSubjects = new Map((homeworkData.lessons || []).map(l => [l.id, l.subject]));
         const firstDay = parseInt(WebUntisAPI.formatDate(startDate));
         const lastDay = parseInt(WebUntisAPI.formatDate(endDate));
