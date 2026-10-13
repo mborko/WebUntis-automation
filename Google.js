@@ -126,7 +126,10 @@ async function sendHomeworkEmailNodejs(config, emailAddress, days = 3, emailPref
         const today = new Date();
         const todayStr = parseInt(WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
         
-        filteredHomeworkList = homeworkList.filter(hw => hw.dueDate !== todayStr);
+        filteredHomeworkList = homeworkList.filter(hw => {
+            if (hw.dueDate === todayStr) WebUntisAPI.logVerbose(`Skipped homework due today: ${hw.subjectName}: ${hw.text}`);
+            return hw.dueDate !== todayStr;
+        });
     }
     
     if (filteredHomeworkList && filteredHomeworkList.length > 0) {
@@ -561,7 +564,9 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
         let updatedCount = 0;
 
         for (const hw of (homeworkData.homeworks || [])) {
-            if (!hw.completed) {
+            if (hw.completed) {
+                WebUntisAPI.logVerbose(`Skipped completed homework: ${hw.text}`);
+            } else {
                 const dueDate = api.formatWebUntisDate(hw.dueDate);
                 const dueDateObj = new Date(dueDate.split('.').reverse().join('-'));
                 
@@ -571,6 +576,7 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 if (reminderDate < today) {
+                    WebUntisAPI.logVerbose(`Skipped homework due ${dueDate} (reminder date passed): ${hw.text}`);
                     continue;
                 }
 
@@ -594,6 +600,7 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
                         calendarId: calendarId,
                         resource: eventData
                     });
+                    WebUntisAPI.logVerbose(`Added: ${eventData.summary} on ${eventData.start.date}`);
                     addedCount++;
                 } catch (error) {
                     console.error(`Error adding homework event ${eventData.summary}: ${error.toString()}`);
@@ -1018,6 +1025,7 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
             };
         }
 
+        const { WebUntisAPI } = require('./WebUntis.js');
         const { google } = require('googleapis');
         const calendar = google.calendar({ version: 'v3', auth });
 
@@ -1068,8 +1076,10 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
                             calendarId: calendarId,
                             eventId: existingEvent.id
                         });
+                        WebUntisAPI.logVerbose(`Deleted cancelled lesson: ${eventData.summary} on ${lesson.date}`);
                         deletedCount++;
                     } else {
+                        WebUntisAPI.logVerbose(`Skipped cancelled lesson (no event): ${eventData.summary} on ${lesson.date}`);
                         skippedCount++;
                     }
                     continue;
@@ -1081,14 +1091,17 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
                         eventId: existingEvent.id,
                         resource: eventData
                     });
+                    WebUntisAPI.logVerbose(`Updated: ${eventData.summary} on ${lesson.date}`);
                     updatedCount++;
                 } else if (!existingEvent) {
                     await calendar.events.insert({
                         calendarId: calendarId,
                         resource: eventData
                     });
+                    WebUntisAPI.logVerbose(`Added: ${eventData.summary} on ${lesson.date}`);
                     addedCount++;
                 } else {
+                    WebUntisAPI.logVerbose(`Skipped (exists): ${eventData.summary} on ${lesson.date}`);
                     skippedCount++;
                 }
 

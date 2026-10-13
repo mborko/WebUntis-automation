@@ -182,7 +182,9 @@ async function runActions(actionNames, options = {}) {
 
     const runnable = selected.filter(name => {
         if (ACTIONS[name].isConfigured()) return true;
-        if (!options.skipUnconfigured) {
+        if (options.skipUnconfigured) {
+            WebUntisAPI.logVerbose(`${name}: skipped, not configured`);
+        } else {
             console.error(`${name}: not configured (set ${ACTIONS[name].hint} in config.js)`);
             success = false;
         }
@@ -267,7 +269,7 @@ async function syncSheet(daysBack) {
 }
 
 function printUsage() {
-    console.log('Usage: node StartNode.js [action ...] [--days N]');
+    console.log('Usage: node StartNode.js [action ...] [--days N] [--verbose]');
     console.log('');
     console.log('Actions:');
     Object.entries(ACTIONS).forEach(([name, action]) => console.log(`  ${name.padEnd(10)} ${action.description}`));
@@ -278,22 +280,26 @@ function printUsage() {
     console.log('');
     console.log('Without action, ACTIONS from config.js (or all configured actions) are run.');
     console.log('--days N     Days back for lessons (default: SHEET_CONFIG.syncDaysBack)');
+    console.log('--verbose    Detailed logs, e.g. skipped lessons and every sheet/calendar change');
 }
 
 /**
- * Parse the command line, e.g. ['lessons', 'teachers', '--days', '30']
+ * Parse the command line, e.g. ['lessons', 'teachers', '--days', '30', '--verbose']
  * A bare number is also accepted as days (e.g. "sheet 30")
  * @param {Array<string>} args - Command line arguments
- * @returns {Object} { command, actions, daysBack } or { error }
+ * @returns {Object} { command, actions, daysBack, verbose } or { error }
  */
 function parseArgs(args) {
     const actions = [];
     let daysBack;
     let command = null;
+    let verbose = false;
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i].toLowerCase();
-        if (arg === '--days' || arg === '-d') {
+        if (arg === '--verbose' || arg === '-v') {
+            verbose = true;
+        } else if (arg === '--days' || arg === '-d') {
             daysBack = parseInt(args[++i], 10);
         } else if (/^\d+$/.test(arg)) {
             daysBack = parseInt(arg, 10);
@@ -313,7 +319,7 @@ function parseArgs(args) {
     if (daysBack !== undefined && !(daysBack > 0)) {
         return { error: '--days needs a positive number' };
     }
-    return { command, actions, daysBack, all: args.some(a => a.toLowerCase() === 'all') };
+    return { command, actions, daysBack, verbose, all: args.some(a => a.toLowerCase() === 'all') };
 }
 
 // ==========================================
@@ -337,6 +343,7 @@ module.exports = {
 // Auto-run if called directly
 if (require.main === module) {
     const parsed = parseArgs(process.argv.slice(2));
+    WebUntisAPI.verbose = Boolean(parsed.verbose);
 
     let run;
     if (parsed.error) {

@@ -54,7 +54,9 @@ function doPost(e) {
 
         const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
         const result = applyLessonEntriesToSpreadsheet(spreadsheet, request.entries);
-        result.teachersWritten = applyTeachersToSpreadsheet(spreadsheet, request.teachers || {});
+        const teachersWritten = applyTeachersToSpreadsheet(spreadsheet, request.teachers || {});
+        result.teachersWritten = teachersWritten.length;
+        result.details.teachers = teachersWritten;
         return respond(result);
     } catch (error) {
         return respond({ success: false, error: error.toString() });
@@ -107,10 +109,10 @@ function getMissingSheetText(existing, entry) {
  * Write the teacher name of each subject into its tab, only where the teacher cell is empty
  * @param {Spreadsheet} spreadsheet - This spreadsheet
  * @param {Object} teachers - Subject short name -> "Surname Firstname (SHORT)"
- * @returns {number} Number of teacher names written
+ * @returns {Array} Written teacher names: { subject, teacher }
  */
 function applyTeachersToSpreadsheet(spreadsheet, teachers) {
-    let written = 0;
+    const written = [];
 
     Object.entries(teachers).forEach(([subject, teacher]) => {
         const sheet = spreadsheet.getSheetByName(subject);
@@ -119,8 +121,8 @@ function applyTeachersToSpreadsheet(spreadsheet, teachers) {
         const cell = sheet.getRange(SHEET_TEACHER_CELL);
         if (String(cell.getValue()).trim() === '') {
             cell.setValue(teacher);
-            console.log(`👤 ${subject}: ${teacher}`);
-            written++;
+            console.log(`${subject}: ${teacher}`);
+            written.push({ subject, teacher });
         }
     });
 
@@ -152,6 +154,8 @@ function resizeWrittenRows(writtenRows) {
  */
 function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
     const result = { success: true, written: 0, unchanged: 0, skipped: 0, unmatched: 0 };
+    // Per-cell details for verbose logging in Node.js (node StartNode.js --verbose)
+    result.details = { written: [], unchanged: [], skipped: [], unmatched: [] };
     const timeZone = spreadsheet.getSpreadsheetTimeZone();
     const tabs = new Map();
     const writtenRows = new Map();   // sheet -> Set of written row numbers
@@ -167,6 +171,7 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
 
         if (!tab) {
             missingTabs.add(entry.subject);
+            result.details.skipped.push({ subject: entry.subject, date: entry.date });
             result.skipped++;
             return;
         }
@@ -183,7 +188,8 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
             .findIndex(header => String(header).trim().startsWith(weekday));
 
         if (rowIndex === -1 || columnIndex === -1) {
-            console.log(`⚠️ No cell for ${entry.subject} on ${weekday} ${entry.date} (week ${monday})`);
+            console.log(`No cell for ${entry.subject} on ${weekday} ${entry.date} (week ${monday})`);
+            result.details.unmatched.push({ subject: entry.subject, date: entry.date });
             result.unmatched++;
             return;
         }
@@ -191,6 +197,7 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
         const existing = String(tab.values[rowIndex][columnIndex] || '');
         const missingText = getMissingSheetText(existing, entry);
         if (!missingText) {
+            result.details.unchanged.push({ subject: entry.subject, date: entry.date });
             result.unchanged++;
             return;
         }
@@ -201,7 +208,8 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
         if (!writtenRows.has(tab.sheet)) writtenRows.set(tab.sheet, new Set());
         writtenRows.get(tab.sheet).add(rowIndex + 1);
         tab.values[rowIndex][columnIndex] = newValue;
-        console.log(`✏️ ${entry.subject} ${weekday} ${entry.date}: ${missingText}`);
+        console.log(`${entry.subject} ${weekday} ${entry.date}: ${missingText}`);
+        result.details.written.push({ subject: entry.subject, date: entry.date, text: missingText });
         result.written++;
     });
 
@@ -209,7 +217,7 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
 
     if (missingTabs.size > 0) {
         result.skippedSubjects = Array.from(missingTabs);
-        console.log(`⏭️ Subjects without a tab (skipped): ${result.skippedSubjects.join(', ')}`);
+        console.log(`Subjects without a tab (skipped): ${result.skippedSubjects.join(', ')}`);
     }
 
     return result;

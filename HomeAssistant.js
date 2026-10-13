@@ -45,7 +45,10 @@ async function sendHomeworkToHomeAssistant(config, haConfig, days = 3, options =
             const today = new Date();
             const todayStr = parseInt(untis.WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
             
-            filteredHomeworkList = homeworkList.filter(hw => hw.dueDate !== todayStr);
+            filteredHomeworkList = homeworkList.filter(hw => {
+                if (hw.dueDate === todayStr) untis.WebUntisAPI.logVerbose(`Skipped homework due today: ${hw.subjectName}: ${hw.text}`);
+                return hw.dueDate !== todayStr;
+            });
         }
         
         // Only send notification if homework exists after filtering

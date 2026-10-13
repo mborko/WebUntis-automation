@@ -50,7 +50,8 @@ class WebUntisAPI {
                 this.personType = response.result.personType;
 
                 // Try to get bearer token, but don't fail if it doesn't work
-                await this.getBearerToken();
+                const hasBearerToken = await this.getBearerToken();
+                WebUntisAPI.logVerbose(`Logged in to ${this.server} as person ${this.personId} (${hasBearerToken ? 'bearer token' : 'session-based auth'})`);
                 return true;
             }
             return false;
@@ -324,6 +325,7 @@ class WebUntisAPI {
         // Get timetable data for the specified period
         const timetableData = await this.getTimetableDataForPeriod(startDateStr, endDateStr, studentId);
 
+        WebUntisAPI.logVerbose(`Timetable ${startDateStr} - ${endDateStr}: ${timetableData?.days?.length || 0} days`);
         if (!timetableData || !timetableData.days || timetableData.days.length === 0) {
             return null;
         }
@@ -392,12 +394,13 @@ class WebUntisAPI {
 
             day.gridEntries.forEach(entry => {
                 // Skip cancelled lessons if option is set
+                // Positions differ between schools, so look elements up by type
+                const subjectElement = WebUntisAPI.findTimetableElement(entry, 'SUBJECT', 'position2');
                 if (opts.skipCancelled && entry.status === 'CANCELLED') {
+                    WebUntisAPI.logVerbose(`Skipped cancelled lesson: ${subjectElement?.displayName || 'Unknown Subject'} on ${day.date.substring(0, 10)}`);
                     return;
                 }
 
-                // Positions differ between schools, so look elements up by type
-                const subjectElement = WebUntisAPI.findTimetableElement(entry, 'SUBJECT', 'position2');
                 const teacherElement = WebUntisAPI.findTimetableElement(entry, 'TEACHER', 'position1');
                 const roomElement = WebUntisAPI.findTimetableElement(entry, 'ROOM', 'position3');
 
@@ -563,6 +566,7 @@ class WebUntisAPI {
             const shortName = Object.keys(teacherCounts).sort((a, b) => teacherCounts[b] - teacherCounts[a])[0];
             if (fullNames.has(shortName)) {
                 teachers[subject] = fullNames.get(shortName);
+                WebUntisAPI.logVerbose(`Teacher ${subject}: ${teachers[subject]}`);
             } else {
                 console.log(`No full name found for teacher ${shortName} (${subject})`);
             }
@@ -600,10 +604,18 @@ class WebUntisAPI {
 
         // 1. Lehrstoff from the class register, one request per lesson (the given lessons may cover more days)
         const firstDate = WebUntisAPI.formatDateForAPI(startDate);
-        const lessonsInRange = lessons.filter(lesson => !lesson.isCancelled && lesson.date.substring(0, 10) >= firstDate);
+        const lessonsInRange = lessons.filter(lesson => lesson.date.substring(0, 10) >= firstDate);
         for (const lesson of lessonsInRange) {
+            const date = lesson.date.substring(0, 10);
+            if (lesson.isCancelled) {
+                WebUntisAPI.logVerbose(`Skipped cancelled lesson: ${lesson.subject} on ${date}`);
+                continue;
+            }
             const content = await this.getTeachingContent(lesson);
-            addUnique(getGroup(lesson.subject, lesson.date.substring(0, 10)).contents, content);
+            if (!content) {
+                WebUntisAPI.logVerbose(`No Lehrstoff: ${lesson.subject} on ${date}`);
+            }
+            addUnique(getGroup(lesson.subject, date).contents, content);
         }
 
         // 2. Hausübung, assigned to the lesson day it was given on
@@ -611,13 +623,17 @@ class WebUntisAPI {
         const lessonSubjects = new Map((homeworkData.lessons || []).map(l => [l.id, l.subject]));
         const firstDay = parseInt(WebUntisAPI.formatDate(startDate));
         const lastDay = parseInt(WebUntisAPI.formatDate(endDate));
-        (homeworkData.homeworks || [])
-            .filter(hw => hw.date >= firstDay && hw.date <= lastDay && lessonSubjects.has(hw.lessonId))
-            .forEach(hw => {
-                const dateStr = hw.date.toString();
-                const date = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+        (homeworkData.homeworks || []).forEach(hw => {
+            const dateStr = hw.date.toString();
+            const date = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+            if (hw.date < firstDay || hw.date > lastDay) {
+                WebUntisAPI.logVerbose(`Skipped homework given on ${date} (outside the last ${daysBack} days): ${hw.text}`);
+            } else if (!lessonSubjects.has(hw.lessonId)) {
+                WebUntisAPI.logVerbose(`Skipped homework without subject on ${date}: ${hw.text}`);
+            } else {
                 addUnique(getGroup(lessonSubjects.get(hw.lessonId), date).homeworks, hw.text);
-            });
+            }
+        });
 
         // 3. Keep the parts separately so a sheet can check which of them it already contains
         return Array.from(groups.values())
@@ -714,7 +730,20 @@ class WebUntisAPI {
         const day = String(date.getDate()).padStart(2, '0');
         return `${year}${month}${day}`;
     }
+
+    /**
+     * Log details only if WebUntisAPI.verbose is enabled (node StartNode.js --verbose)
+     * @param {...*} args - Arguments for console.log
+     */
+    static logVerbose(...args) {
+        if (WebUntisAPI.verbose) {
+            console.log(...args);
+        }
+    }
 }
+
+// Set to true for detailed logs, e.g. skipped lessons and every calendar/sheet change
+WebUntisAPI.verbose = false;
 
 /**
  * Event Notification Manager

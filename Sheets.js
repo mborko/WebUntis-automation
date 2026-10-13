@@ -73,7 +73,28 @@ async function collectSheetData(api, daysBack, options = {}) {
     const lessons = await api.getPastLessons(opts.teachers ? Math.max(daysBack, 28) : daysBack);
     const entries = opts.lessons ? await api.getLessonSheetEntries(daysBack, lessons) : [];
     const teachers = opts.teachers ? await api.getSubjectTeachers(lessons) : {};
+    api.constructor.logVerbose(`Sending ${entries.length} entries and ${Object.keys(teachers).length} teacher names to the web app`);
     return { entries, teachers };
+}
+
+/**
+ * Log what the web app did per cell (only with verbose logging)
+ * The per-cell details are only returned by a SheetWebApp.gs deployment that includes them
+ *
+ * @param {Object} result - Result of sendLessonEntriesToWebApp()
+ * @param {Function} log - Logging function, e.g. WebUntisAPI.logVerbose
+ */
+function logSheetResultDetails(result, log) {
+    const details = result.details || {};
+    (details.written || []).forEach(cell => log(`Written: ${cell.subject} ${cell.date}: ${cell.text.replace(/\n/g, ' | ')}`));
+    (details.unchanged || []).forEach(cell => log(`Unchanged (already in sheet): ${cell.subject} ${cell.date}`));
+    (details.skipped || []).forEach(cell => log(`Skipped (no tab for subject): ${cell.subject} ${cell.date}`));
+    (details.unmatched || []).forEach(cell => log(`No matching cell: ${cell.subject} ${cell.date}`));
+    (details.teachers || []).forEach(teacher => log(`Teacher name added: ${teacher.subject}: ${teacher.teacher}`));
+
+    if (!result.details && result.skippedSubjects && result.skippedSubjects.length > 0) {
+        log(`Subjects without a tab (skipped): ${result.skippedSubjects.join(', ')}`);
+    }
 }
 
 /**
@@ -110,6 +131,7 @@ async function syncLessonsToSheet(config, sheetConfig, daysBack = 7, options = {
         const { entries, teachers } = await collectSheetData(api, daysBack, options);
         const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
 
+        logSheetResultDetails(result, WebUntisAPI.logVerbose);
         console.log(`Sheet sync done: ${formatSheetResult(result, options)}`);
         await clearWebUntisApiInstance();
         return result;
@@ -131,11 +153,13 @@ async function syncLessonsToSheet(config, sheetConfig, daysBack = 7, options = {
  * @returns {Promise<Object>} Sync result returned by the web app
  */
 async function syncLessonsToSheetNodejs(config, sheetConfig, daysBack = 7, options = {}) {
-    const { getWebUntisApiInstance } = require('./WebUntis.js');
+    const { getWebUntisApiInstance, WebUntisAPI } = require('./WebUntis.js');
 
     const api = await getWebUntisApiInstance(config);
     const { entries, teachers } = await collectSheetData(api, daysBack, options);
-    return await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
+    const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
+    logSheetResultDetails(result, WebUntisAPI.logVerbose);
+    return result;
 }
 
 // Export functions for Node.js
