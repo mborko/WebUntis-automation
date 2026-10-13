@@ -16,10 +16,11 @@
  * @param {Object} sheetConfig - Sheet configuration with webAppUrl and secret
  * @param {Array} entries - Entries from api.getLessonSheetEntries()
  * @param {Object} teachers - Teacher names per subject from api.getSubjectTeachers()
+ * @param {boolean} overwrite - Replace the cells with the WebUntis data instead of appending (default: false)
  * @returns {Promise<Object>} Result of the web app: written, unchanged, skipped, unmatched
  */
-async function sendLessonEntriesToWebApp(sheetConfig, entries, teachers = {}) {
-    const body = JSON.stringify({ secret: sheetConfig.secret, entries, teachers });
+async function sendLessonEntriesToWebApp(sheetConfig, entries, teachers = {}, overwrite = false) {
+    const body = JSON.stringify({ secret: sheetConfig.secret, entries, teachers, overwrite });
     let status;
     let responseText;
 
@@ -53,6 +54,9 @@ async function sendLessonEntriesToWebApp(sheetConfig, entries, teachers = {}) {
     if (!result.success) {
         throw new Error(`Web app error: ${result.error}`);
     }
+    if (overwrite && result.overwrite !== true) {
+        throw new Error('The deployed web app does not support overwriting, missing parts were only appended - deploy the current SheetWebApp.js as new version');
+    }
     return result;
 }
 
@@ -64,6 +68,7 @@ async function sendLessonEntriesToWebApp(sheetConfig, entries, teachers = {}) {
  * @param {Object} options - What to collect
  * @param {boolean} options.lessons - Collect Lehrstoff and Hausübung (default: true)
  * @param {boolean} options.teachers - Collect the teacher names (default: true)
+ * @param {boolean} options.overwrite - Only used by the sync functions: replace the cells instead of appending
  * @returns {Promise<Object>} { entries, teachers }
  */
 async function collectSheetData(api, daysBack, options = {}) {
@@ -122,14 +127,14 @@ function formatSheetResult(result, options = {}) {
  * @param {Object} config - WebUntis configuration object
  * @param {Object} sheetConfig - Sheet configuration with webAppUrl and secret
  * @param {number} daysBack - Number of days to look back (default: 7)
- * @param {Object} options - { lessons, teachers }, see collectSheetData()
+ * @param {Object} options - { lessons, teachers, overwrite }, see collectSheetData()
  * @returns {Promise<Object>} Sync result
  */
 async function syncLessonsToSheet(config, sheetConfig, daysBack = 7, options = {}) {
     try {
         const api = await getWebUntisApiInstance(config);
         const { entries, teachers } = await collectSheetData(api, daysBack, options);
-        const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
+        const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers, options.overwrite === true);
 
         logSheetResultDetails(result, WebUntisAPI.logVerbose);
         console.log(`Sheet sync done: ${formatSheetResult(result, options)}`);
@@ -149,7 +154,7 @@ async function syncLessonsToSheet(config, sheetConfig, daysBack = 7, options = {
  * @param {Object} config - WebUntis configuration object
  * @param {Object} sheetConfig - Sheet configuration with webAppUrl and secret
  * @param {number} daysBack - Number of days to look back (default: 7)
- * @param {Object} options - { lessons, teachers }, see collectSheetData()
+ * @param {Object} options - { lessons, teachers, overwrite }, see collectSheetData()
  * @returns {Promise<Object>} Sync result returned by the web app
  */
 async function syncLessonsToSheetNodejs(config, sheetConfig, daysBack = 7, options = {}) {
@@ -157,7 +162,7 @@ async function syncLessonsToSheetNodejs(config, sheetConfig, daysBack = 7, optio
 
     const api = await getWebUntisApiInstance(config);
     const { entries, teachers } = await collectSheetData(api, daysBack, options);
-    const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers);
+    const result = await sendLessonEntriesToWebApp(sheetConfig, entries, teachers, options.overwrite === true);
     logSheetResultDetails(result, WebUntisAPI.logVerbose);
     return result;
 }

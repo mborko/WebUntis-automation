@@ -127,7 +127,7 @@ Run single actions with `node StartNode.js <action ...> [--days N]`:
 - `sheet` - Same as `lessons teachers`
 - `all` - All configured actions
 
-Example: `node StartNode.js lessons teachers --days 14`. Add `--verbose` for detailed logs (skipped lessons and homework, teacher names, every sheet cell and calendar event written or skipped). Without action, the actions listed in `ACTIONS` in `config.js` are run (all configured ones if it is not set).
+Example: `node StartNode.js lessons teachers --days 14`. Add `--overwrite` to replace the sheet cells (and teacher names) with the WebUntis data instead of only appending what is missing (needs the current `SheetWebApp.js` deployed). Add `--verbose` for detailed logs (skipped lessons and homework, teacher names, every sheet cell and calendar event written or skipped). Without action, the actions listed in `ACTIONS` in `config.js` are run (all configured ones if it is not set).
 
 Shortcuts:
 - `npm start` - Run the default actions

@@ -22,6 +22,7 @@
  *
  * Existing cell content is kept; Lehrstoff and each Hausübung are only appended if not already contained.
  * The regular teacher (e.g. "Wohlgenannt Claudia (WOH)") is written to F1 of a tab if F1 is empty.
+ * With "overwrite" in the request, the cells and F1 are replaced with the data from WebUntis instead.
  */
 
 const SHEET_WEB_APP_SECRET = '<CHOOSE_A_LONG_RANDOM_SECRET>'; // Must match SHEET_CONFIG.secret
@@ -34,7 +35,7 @@ const SHEET_TEACHER_CELL = 'F1';     // Cell for the teacher name, only filled i
 
 /**
  * Web app endpoint
- * @param {Object} e - POST event with JSON body { secret, entries, teachers }
+ * @param {Object} e - POST event with JSON body { secret, entries, teachers, overwrite }
  * @returns {TextOutput} JSON result
  */
 function doPost(e) {
@@ -53,8 +54,10 @@ function doPost(e) {
         }
 
         const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-        const result = applyLessonEntriesToSpreadsheet(spreadsheet, request.entries);
-        const teachersWritten = applyTeachersToSpreadsheet(spreadsheet, request.teachers || {});
+        const overwrite = request.overwrite === true;
+        const result = applyLessonEntriesToSpreadsheet(spreadsheet, request.entries, overwrite);
+        const teachersWritten = applyTeachersToSpreadsheet(spreadsheet, request.teachers || {}, overwrite);
+        result.overwrite = overwrite; // Lets the client detect deployments that do not support overwriting
         result.teachersWritten = teachersWritten.length;
         result.details.teachers = teachersWritten;
         return respond(result);
@@ -109,9 +112,10 @@ function getMissingSheetText(existing, entry) {
  * Write the teacher name of each subject into its tab, only where the teacher cell is empty
  * @param {Spreadsheet} spreadsheet - This spreadsheet
  * @param {Object} teachers - Subject short name -> "Surname Firstname (SHORT)"
+ * @param {boolean} overwrite - Replace a different existing name (default: false)
  * @returns {Array} Written teacher names: { subject, teacher }
  */
-function applyTeachersToSpreadsheet(spreadsheet, teachers) {
+function applyTeachersToSpreadsheet(spreadsheet, teachers, overwrite = false) {
     const written = [];
 
     Object.entries(teachers).forEach(([subject, teacher]) => {
@@ -119,7 +123,8 @@ function applyTeachersToSpreadsheet(spreadsheet, teachers) {
         if (!sheet || !teacher) return;
 
         const cell = sheet.getRange(SHEET_TEACHER_CELL);
-        if (String(cell.getValue()).trim() === '') {
+        const existing = String(cell.getValue()).trim();
+        if (existing === '' || (overwrite && existing !== teacher)) {
             cell.setValue(teacher);
             console.log(`${subject}: ${teacher}`);
             written.push({ subject, teacher });
@@ -149,10 +154,11 @@ function resizeWrittenRows(writtenRows) {
 /**
  * Write lesson entries into the spreadsheet (append if missing)
  * @param {Spreadsheet} spreadsheet - This spreadsheet
- * @param {Array} entries - Entries from api.getLessonSheetEntries(): { subject, date, contents, homeworks }
+ * @param {Array} entries - Entries from api.getLessonSheetEntries(): { subject, date, contents, homeworks, text }
+ * @param {boolean} overwrite - Replace the cell with the entry text instead of appending what is missing (default: false)
  * @returns {Object} Result with written, unchanged, skipped and unmatched counts
  */
-function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
+function applyLessonEntriesToSpreadsheet(spreadsheet, entries, overwrite = false) {
     const result = { success: true, written: 0, unchanged: 0, skipped: 0, unmatched: 0 };
     // Per-cell details for verbose logging in Node.js (node StartNode.js --verbose)
     result.details = { written: [], unchanged: [], skipped: [], unmatched: [] };
@@ -195,14 +201,16 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries) {
         }
 
         const existing = String(tab.values[rowIndex][columnIndex] || '');
-        const missingText = getMissingSheetText(existing, entry);
+        const missingText = overwrite
+            ? (existing.trim() === entry.text.trim() ? '' : entry.text)
+            : getMissingSheetText(existing, entry);
         if (!missingText) {
             result.details.unchanged.push({ subject: entry.subject, date: entry.date });
             result.unchanged++;
             return;
         }
 
-        const newValue = existing.trim() ? `${existing}\n${missingText}` : missingText;
+        const newValue = overwrite || !existing.trim() ? missingText : `${existing}\n${missingText}`;
         // Wrap the text so the row can grow to show the whole content
         tab.sheet.getRange(rowIndex + 1, columnIndex + 1).setValue(newValue).setWrap(true);
         if (!writtenRows.has(tab.sheet)) writtenRows.set(tab.sheet, new Set());

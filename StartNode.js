@@ -149,7 +149,7 @@ const ALIASES = {
 
 /**
  * Write Lehrstoff/Hausübung and/or teacher names to the sheet with one timetable fetch and one request
- * @param {Object} options - { lessons, teachers }
+ * @param {Object} options - { lessons, teachers, overwrite }
  * @param {number} daysBack - Number of days to look back for Lehrstoff and Hausübung
  * @returns {Promise<string>} Summary
  */
@@ -166,6 +166,7 @@ async function runSheet(options, daysBack) {
  * @param {Array<string>} actionNames - Names from ACTIONS or ALIASES
  * @param {Object} options
  * @param {number} options.daysBack - Days back for the sheet (default: SHEET_CONFIG.syncDaysBack or 7)
+ * @param {boolean} options.overwrite - Replace the sheet cells with the WebUntis data instead of appending (default: false)
  * @param {boolean} options.skipUnconfigured - Skip unconfigured actions without error (default: false)
  * @returns {Promise<boolean>} true if all actions succeeded
  */
@@ -191,7 +192,11 @@ async function runActions(actionNames, options = {}) {
         return false;
     });
 
-    const sheetOptions = { lessons: runnable.includes('lessons'), teachers: runnable.includes('teachers') };
+    const sheetOptions = {
+        lessons: runnable.includes('lessons'),
+        teachers: runnable.includes('teachers'),
+        overwrite: options.overwrite === true
+    };
 
     try {
         for (const name of runnable) {
@@ -215,10 +220,10 @@ async function runActions(actionNames, options = {}) {
 
 /**
  * Run the actions listed in ACTIONS of config.js, or all configured actions if it is not set
- * @param {number} daysBack - Days back for the sheet (default: SHEET_CONFIG.syncDaysBack)
+ * @param {Object} options - { daysBack, overwrite }, see runActions()
  */
-async function StartNode(daysBack) {
-    return runActions(config.ACTIONS || ALIASES.all, { daysBack, skipUnconfigured: !config.ACTIONS });
+async function StartNode(options = {}) {
+    return runActions(config.ACTIONS || ALIASES.all, { ...options, skipUnconfigured: !config.ACTIONS });
 }
 
 /**
@@ -263,13 +268,14 @@ async function quickHomeworkCheck() {
 /**
  * Sync Lehrstoff/Hausübung and teacher names to the class spreadsheet only
  * @param {number} daysBack - Number of days to look back (default: SHEET_CONFIG.syncDaysBack)
+ * @param {boolean} overwrite - Replace the cells with the WebUntis data instead of appending (default: false)
  */
-async function syncSheet(daysBack) {
-    return runActions(ALIASES.sheet, { daysBack });
+async function syncSheet(daysBack, overwrite = false) {
+    return runActions(ALIASES.sheet, { daysBack, overwrite });
 }
 
 function printUsage() {
-    console.log('Usage: node StartNode.js [action ...] [--days N] [--verbose]');
+    console.log('Usage: node StartNode.js [action ...] [--days N] [--overwrite] [--verbose]');
     console.log('');
     console.log('Actions:');
     Object.entries(ACTIONS).forEach(([name, action]) => console.log(`  ${name.padEnd(10)} ${action.description}`));
@@ -280,6 +286,7 @@ function printUsage() {
     console.log('');
     console.log('Without action, ACTIONS from config.js (or all configured actions) are run.');
     console.log('--days N     Days back for lessons (default: SHEET_CONFIG.syncDaysBack)');
+    console.log('--overwrite  Replace the sheet cells (and teacher names) with the WebUntis data instead of appending');
     console.log('--verbose    Detailed logs, e.g. skipped lessons and every sheet/calendar change');
 }
 
@@ -287,18 +294,21 @@ function printUsage() {
  * Parse the command line, e.g. ['lessons', 'teachers', '--days', '30', '--verbose']
  * A bare number is also accepted as days (e.g. "sheet 30")
  * @param {Array<string>} args - Command line arguments
- * @returns {Object} { command, actions, daysBack, verbose } or { error }
+ * @returns {Object} { command, actions, daysBack, verbose, overwrite } or { error }
  */
 function parseArgs(args) {
     const actions = [];
     let daysBack;
     let command = null;
     let verbose = false;
+    let overwrite = false;
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i].toLowerCase();
         if (arg === '--verbose' || arg === '-v') {
             verbose = true;
+        } else if (arg === '--overwrite') {
+            overwrite = true;
         } else if (arg === '--days' || arg === '-d') {
             daysBack = parseInt(args[++i], 10);
         } else if (/^\d+$/.test(arg)) {
@@ -319,7 +329,7 @@ function parseArgs(args) {
     if (daysBack !== undefined && !(daysBack > 0)) {
         return { error: '--days needs a positive number' };
     }
-    return { command, actions, daysBack, verbose, all: args.some(a => a.toLowerCase() === 'all') };
+    return { command, actions, daysBack, verbose, overwrite, all: args.some(a => a.toLowerCase() === 'all') };
 }
 
 // ==========================================
@@ -357,9 +367,9 @@ if (require.main === module) {
     } else if (parsed.command === 'quick') {
         run = quickHomeworkCheck();
     } else if (parsed.actions.length > 0) {
-        run = runActions(parsed.actions, { daysBack: parsed.daysBack, skipUnconfigured: parsed.all });
+        run = runActions(parsed.actions, { daysBack: parsed.daysBack, overwrite: parsed.overwrite, skipUnconfigured: parsed.all });
     } else {
-        run = StartNode(parsed.daysBack);
+        run = StartNode({ daysBack: parsed.daysBack, overwrite: parsed.overwrite });
     }
 
     if (run) {
