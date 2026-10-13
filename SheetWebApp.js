@@ -27,7 +27,7 @@
 
 const SHEET_WEB_APP_SECRET = '<CHOOSE_A_LONG_RANDOM_SECRET>'; // Must match SHEET_CONFIG.secret
 
-const SHEET_WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const SHEET_WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag']; // School days, starting with Monday
 const SHEET_HEADER_ROW = 2;          // Row with "KW | UW | von | Tag | Montag | ..."
 const SHEET_WEEK_START_COLUMN = 4;   // Column D ("von") holds the Monday of each week
 const SHEET_MIN_ROW_HEIGHT = 37;     // Minimum height (pixels) of rows with inserted text
@@ -70,15 +70,15 @@ function doPost(e) {
  * Get the Monday (YYYY-MM-DD) and the German weekday name for a date string
  * Calculated in UTC on purpose to avoid timezone shifts
  * @param {string} date - Date in YYYY-MM-DD format
- * @returns {{monday: string, weekday: string}}
+ * @returns {{monday: string, weekday: string|null}} weekday is null on Saturday and Sunday
  */
 function getSheetWeekPosition(date) {
     const day = new Date(`${date}T00:00:00Z`);
-    const weekdayIndex = day.getUTCDay();
-    const monday = new Date(day.getTime() - ((weekdayIndex + 6) % 7) * 24 * 60 * 60 * 1000);
+    const daysSinceMonday = (day.getUTCDay() + 6) % 7;
+    const monday = new Date(day.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000);
     return {
         monday: monday.toISOString().substring(0, 10),
-        weekday: SHEET_WEEKDAYS[weekdayIndex]
+        weekday: SHEET_WEEKDAYS[daysSinceMonday] || null
     };
 }
 
@@ -183,6 +183,12 @@ function applyLessonEntriesToSpreadsheet(spreadsheet, entries, overwrite = false
         }
 
         const { monday, weekday } = getSheetWeekPosition(entry.date);
+        if (!weekday) {
+            console.log(`No school day: ${entry.subject} on ${entry.date}`);
+            result.details.unmatched.push({ subject: entry.subject, date: entry.date });
+            result.unmatched++;
+            return;
+        }
 
         const rowIndex = tab.values.findIndex((row, index) => {
             const weekStart = row[SHEET_WEEK_START_COLUMN - 1];
