@@ -143,7 +143,7 @@ async function sendHomeworkEmailNodejs(config, emailAddress, days = 3, emailPref
         
         // For Node.js - requires nodemailer setup
         const nodemailer = require('nodemailer');
-        const transporter = nodemailer.createTransport(emailConfig);
+        const transporter = nodemailer.createTransport(createMailTransportOptions(emailConfig));
         
         await transporter.sendMail({
             from: emailConfig.from,
@@ -156,6 +156,26 @@ async function sendHomeworkEmailNodejs(config, emailAddress, days = 3, emailPref
         return { sent: true, homeworkCount: filteredHomeworkList.length };
     }
     return { sent: false, homeworkCount: 0 };
+}
+
+/**
+ * Build nodemailer transport options from MAIL_NOTIFICATION_CONFIG.emailConfig
+ * nodemailer expects the credentials in "auth", the config has them at the top level
+ *
+ * @param {Object} emailConfig - { service, user, password, from } or OAuth2 { service, user, clientId, clientSecret, refreshToken }
+ * @returns {Object} nodemailer transport options
+ */
+function createMailTransportOptions(emailConfig) {
+    const { user, password, clientId, clientSecret, refreshToken, from, auth, ...transport } = emailConfig;
+    if (auth) {
+        return { ...transport, auth };
+    }
+    return {
+        ...transport,
+        auth: refreshToken
+            ? { type: 'OAuth2', user, clientId, clientSecret, refreshToken }
+            : { user, pass: password }
+    };
 }
 
 /**
