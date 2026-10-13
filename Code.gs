@@ -35,12 +35,14 @@ const HA_CONFIG = {
     token: '<YOUR_HA_ACCESS_TOKEN>',              // Replace with your long-lived access token
     service: 'notify.signal_me',                   // Replace with your notification service
     daysAheadNotifications: 3,                     // How many days ahead to check for homework notifications
+    language: 'de',                                // Language of the notification: 'de' or 'en'
 };
 
 const MAIL_NOTIFICATION_CONFIG = {
     enabled: true,                                 // Set to false to disable email notifications
     email: '<YOUR_EMAIL@gmail.com>',               // Your email address for notifications
     homeworkDaysAhead: 3,                          // How many days ahead to check for homework in email notifications
+    language: 'de',                                // Language of the email: 'de' or 'en'
     titlePrefix: null,                             // Optional prefix for email subject (e.g., "📚 School:", "Student Name:")
     emailConfig: null                              // Not needed for Google Apps Script (uses built-in Gmail)
 };
@@ -80,7 +82,7 @@ function runDaily(){
 
 function sendNotifications() {
   console.log('🔔 Sending notifications...');
-  sendHomeworkEmail(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix);
+  sendHomeworkEmail(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix, MAIL_NOTIFICATION_CONFIG.language);
 }
 
 function syncCalendar(){

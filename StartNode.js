@@ -12,7 +12,7 @@
 
 // Import for Node.js
 const { WebUntisAPI, getWebUntisApiInstance, clearWebUntisApiInstance } = require('./WebUntis.js');
-const { sendHomeworkEmailNodejs, syncHomeworkToCalendarNodejs, syncTimetableToCalendarNodejs } = require('./Google.js');
+const { sendHomeworkEmailNodejs, getEmailRecipients, syncHomeworkToCalendarNodejs, syncTimetableToCalendarNodejs } = require('./Google.js');
 const { sendHomeworkToHomeAssistant } = require('./HomeAssistant.js');
 const { syncLessonsToSheetNodejs, formatSheetResult } = require('./Sheets.js');
 
@@ -40,7 +40,8 @@ const isUntisConfigured = () => !isPlaceholder(UNTIS_CONFIG.school);
 
 const isEmailConfigured = () =>
     MAIL_NOTIFICATION_CONFIG.enabled &&
-    !isPlaceholder(MAIL_NOTIFICATION_CONFIG.email) &&
+    getEmailRecipients(MAIL_NOTIFICATION_CONFIG.email).length > 0 &&
+    !getEmailRecipients(MAIL_NOTIFICATION_CONFIG.email).some(isPlaceholder) &&
     MAIL_NOTIFICATION_CONFIG.emailConfig &&
     !isPlaceholder(MAIL_NOTIFICATION_CONFIG.emailConfig.user);
 
@@ -72,8 +73,10 @@ const ACTIONS = {
         isConfigured: isEmailConfigured,
         hint: 'MAIL_NOTIFICATION_CONFIG.email and emailConfig',
         run: async () => {
-            const result = await sendHomeworkEmailNodejs(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix, MAIL_NOTIFICATION_CONFIG.emailConfig);
-            return result.sent ? `sent (${result.homeworkCount} homework)` : 'no homework, not sent';
+            const result = await sendHomeworkEmailNodejs(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix, MAIL_NOTIFICATION_CONFIG.emailConfig, MAIL_NOTIFICATION_CONFIG.language);
+            return result.sent
+                ? `sent to ${result.recipients.length} recipient(s) (${result.homeworkCount} homework, Lehrstoff of ${result.contentCount} subjects)`
+                : 'no homework and no Lehrstoff today, not sent';
         }
     },
     homework: {
@@ -98,11 +101,12 @@ const ACTIONS = {
         hint: 'HA_CONFIG.url and HA_CONFIG.token',
         run: async () => {
             const result = await sendHomeworkToHomeAssistant(UNTIS_CONFIG, HA_CONFIG, HA_CONFIG.daysAheadNotifications, {
-                title: 'WebUntis Homework Update',
                 includeDetails: true
             });
             if (!result.success) throw new Error(result.error);
-            return result.homeworkCount > 0 ? `sent (${result.homeworkCount} homework)` : 'no homework, not sent';
+            return result.homeworkCount > 0 || result.contentCount > 0
+                ? `sent (${result.homeworkCount} homework, Lehrstoff of ${result.contentCount} subjects)`
+                : 'no homework and no Lehrstoff today, not sent';
         }
     },
     timetable: {
@@ -255,7 +259,7 @@ async function testNodeSetup() {
 async function quickHomeworkCheck() {
     try {
         const api = await getWebUntisApiInstance(UNTIS_CONFIG);
-        console.log(await api.getFormattedHomework(MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, true));
+        console.log(await api.getFormattedHomework(MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, true, MAIL_NOTIFICATION_CONFIG.language));
         return true;
     } catch (error) {
         console.error(`Homework check failed - ${error.message}`);

@@ -13,80 +13,139 @@
  */
 
 // ==========================================
-// GOOGLE APPS SCRIPT EMAIL FUNCTIONS
+// EMAIL FUNCTIONS (Google Apps Script and Node.js)
 // ==========================================
 
 /**
- * Get homework and send email notification
+ * Collect the open homework and today's Lehrstoff and build the email
+ * Shared by the Apps Script and the Node.js version
+ *
+ * @param {WebUntisAPI} api - Authenticated API instance
+ * @param {number} days - Number of days to look ahead for homework
+ * @param {string} emailPrefix - Optional prefix for the email subject
+ * @param {string} language - 'de' or 'en' (default: 'de')
+ * @returns {Promise<Object|null>} { subject, text, html, homeworkCount, contentCount } or null if there is nothing to send
+ */
+async function createHomeworkEmail(api, days, emailPrefix = null, language = 'de') {
+    const WebUntis = api.constructor;
+    const texts = WebUntis.getTexts(language);
+    const update = await api.getSchoolUpdate(days);
+    const { homeworkList, teachingContents } = update;
+
+    if (homeworkList.length === 0 && teachingContents.length === 0) {
+        return null;
+    }
+
+    const formatDate = (date) => WebUntis.formatDateWithWeekday(date, language);
+    const today = formatDate(new Date());
+    const subject = `${emailPrefix ? `${emailPrefix} ` : ''}${texts.emailSubject} – ${today}`;
+
+    // HTML version, the plain text version is the same text as in the Home Assistant notification
+    const escape = (text) => String(text || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+
+    let body = `<h1>&#x1F4D6; ${escape(`${texts.contentTitle} (${today})`)}</h1>\n`;
+    if (teachingContents.length > 0) {
+        teachingContents.forEach(entry => {
+            body += `<div class="item"><div class="subject">${escape(entry.subject)}</div>` +
+                `<div class="description">${entry.contents.map(escape).join('<br>')}</div></div>\n`;
+        });
+    } else {
+        body += `<p class="empty">${escape(texts.noContent)}</p>\n`;
+    }
+
+    body += `<h1>&#x1F4DA; ${escape(texts.homeworkTitle(days))}</h1>\n`;
+    if (homeworkList.length > 0) {
+        homeworkList.forEach(hw => {
+            body += `<div class="item"><div class="subject">&#x1F4CB; ${escape(hw.subjectName)}</div>` +
+                (hw.date ? `<div class="assigned-date">&#x1F5D3; ${texts.assigned}: ${formatDate(hw.date)}</div>` : '') +
+                `<div class="due-date">&#x1F4C5; ${texts.due}: ${formatDate(hw.dueDate)}</div>` +
+                `<div class="description">${escape(hw.text || texts.noDescription)}</div></div>\n`;
+        });
+    } else {
+        body += `<p class="empty">${escape(texts.noHomework)}</p>\n`;
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="${language === 'en' ? 'en' : 'de'}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; line-height: 1.6; color: #333; margin: 20px; background-color: #f9f9f9; }
+        .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; margin: 30px 0 20px; font-size: 22px; }
+        h1:first-child { margin-top: 0; }
+        .item { background-color: #f8f9fa; border-left: 4px solid #3498db; margin: 16px 0; padding: 16px 20px; border-radius: 8px; }
+        .subject { font-weight: bold; font-size: 18px; color: #2c3e50; margin-bottom: 6px; }
+        .assigned-date { color: #7f8c8d; font-size: 14px; margin-bottom: 2px; }
+        .due-date { color: #e74c3c; font-weight: bold; font-size: 16px; margin-bottom: 10px; }
+        .description { color: #555; background-color: white; padding: 10px 12px; border-radius: 4px; border: 1px solid #e9ecef; }
+        .empty { color: #7f8c8d; }
+        .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #ddd; color: #666; font-size: 13px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+${body}<div class="footer"><p>&#x1F916; ${escape(texts.footer)}</p></div>
+</div>
+</body>
+</html>
+`;
+
+    return {
+        subject,
+        text: api.formatSchoolUpdateText(update, days, language),
+        html,
+        homeworkCount: homeworkList.length,
+        contentCount: teachingContents.length
+    };
+}
+
+/**
+ * Send the open homework and today's Lehrstoff by email
  * This function can be set up as a trigger in Google Apps Script
- * 
- * For Google Apps Script: 
+ *
+ * For Google Apps Script:
  * - Copy WebUntis.js content to your Google Apps Script project first
  * - Then copy this function
- * 
+ *
  * For Node.js: Use sendHomeworkEmailNodejs() instead
- * 
+ *
  * @param {Object} config - WebUntis configuration object
- * @param {string} emailAddress - Email address to send to
+ * @param {string|Array<string>} emailAddress - Recipient address, list of addresses or comma-separated string
  * @param {number} days - Number of days to look ahead (default: 3)
  * @param {string} emailPrefix - Optional prefix for email subject (default: null)
+ * @param {string} language - 'de' or 'en' (default: 'de')
  */
-async function sendHomeworkEmail(config, emailAddress, days = 3, emailPrefix = null) {
+async function sendHomeworkEmail(config, emailAddress, days = 3, emailPrefix = null, language = 'de') {
     if (!config) {
         throw new Error('Config parameter is required');
     }
-    
-    if (!emailAddress) {
+
+    const recipients = getEmailRecipients(emailAddress);
+    if (recipients.length === 0) {
         throw new Error('Email address parameter is required');
     }
 
     try {
         // Get API instance using the global function from WebUntis.js
         const api = await getWebUntisApiInstance(config);
-        const homeworkList = await api.getHomeworkList(days, true); // Next n days, open only
-        
-        // Filter out homework due today
-        let filteredHomeworkList = null;
-        if (homeworkList) {
-            const today = new Date();
-            const todayStr = parseInt(WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
-            
-            filteredHomeworkList = homeworkList.filter(hw => 
-                hw.dueDate !== todayStr);
-        }
-        
-        // Only send email if homework exists after filtering
-        if (filteredHomeworkList && filteredHomeworkList.length > 0) {
-            const homework = api.formatHomework(filteredHomeworkList, days, true);
-            
-            // Convert plain text to HTML for better emoji support
-            const htmlContent = convertToHtmlEmail(homework);
-            
-            // Create email title with optional prefix from parameter
-            let emailTitle = 'Upcoming Homework Reminder';
-            if (emailPrefix) {
-                emailTitle = `${emailPrefix} ${emailTitle}`;
-            }
-            
-            // Send email using Gmail API with HTML content
-            // Note: This is Google Apps Script specific - see sendHomeworkEmailNodejs() for Node.js version
-            GmailApp.sendEmail(
-                emailAddress,
-                emailTitle,
-                homework, // Plain text fallback
-                {
-                    htmlBody: htmlContent,
-                    from: Session.getActiveUser().getEmail()
-                }
-            );
-            console.log(`Homework email sent successfully to ${emailAddress}!`);
-            console.log(`Found ${filteredHomeworkList.length} homework assignments (filtered out today's homework)`);
+        const email = await createHomeworkEmail(api, days, emailPrefix, language);
+
+        if (email) {
+            GmailApp.sendEmail(recipients.join(','), email.subject, email.text, {
+                htmlBody: email.html,
+                from: Session.getActiveUser().getEmail()
+            });
+            console.log(`Email sent to ${recipients.join(', ')} (${email.homeworkCount} homework, Lehrstoff of ${email.contentCount} subjects)`);
         } else {
-            console.log(`No homework found for the next ${days} days (excluding today) - email not sent`);
+            console.log(`No homework for the next ${days} days and no Lehrstoff today - email not sent`);
         }
-        
+
         // Note: We don't logout here as we're reusing the session
-        
+
     } catch (error) {
         console.error('Error sending homework email:', error.toString());
         throw error;
@@ -96,66 +155,58 @@ async function sendHomeworkEmail(config, emailAddress, days = 3, emailPrefix = n
 /**
  * Node.js version of sendHomeworkEmail using nodemailer
  * Requires: npm install nodemailer
- * 
+ *
  * @param {Object} config - WebUntis configuration object
- * @param {string} emailAddress - Email address to send to
+ * @param {string|Array<string>} emailAddress - Recipient address, list of addresses or comma-separated string
  * @param {number} days - Number of days to look ahead (default: 3)
  * @param {string} emailPrefix - Optional prefix for email subject (default: null)
  * @param {Object} emailConfig - Email configuration for nodemailer
+ * @param {string} language - 'de' or 'en' (default: 'de')
+ * @returns {Promise<Object>} { sent, homeworkCount, contentCount, recipients }
  */
-async function sendHomeworkEmailNodejs(config, emailAddress, days = 3, emailPrefix = null, emailConfig) {
+async function sendHomeworkEmailNodejs(config, emailAddress, days = 3, emailPrefix = null, emailConfig, language = 'de') {
     if (!config) {
         throw new Error('Config parameter is required');
     }
-    
-    if (!emailAddress) {
+
+    const recipients = getEmailRecipients(emailAddress);
+    if (recipients.length === 0) {
         throw new Error('Email address parameter is required');
     }
-    
+
     if (!emailConfig) {
         throw new Error('Email configuration is required for Node.js version');
     }
 
     const { getWebUntisApiInstance, WebUntisAPI } = require('./WebUntis.js');
     const api = await getWebUntisApiInstance(config);
-    const homeworkList = await api.getHomeworkList(days, true);
-    
-    // Filter out homework due today
-    let filteredHomeworkList = null;
-    if (homeworkList) {
-        const today = new Date();
-        const todayStr = parseInt(WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
-        
-        filteredHomeworkList = homeworkList.filter(hw => {
-            if (hw.dueDate === todayStr) WebUntisAPI.logVerbose(`Skipped homework due today: ${hw.subjectName}: ${hw.text}`);
-            return hw.dueDate !== todayStr;
-        });
+    const email = await createHomeworkEmail(api, days, emailPrefix, language);
+    if (!email) {
+        return { sent: false, homeworkCount: 0, contentCount: 0, recipients };
     }
-    
-    if (filteredHomeworkList && filteredHomeworkList.length > 0) {
-        const homework = api.formatHomework(filteredHomeworkList, days, true);
-        const htmlContent = convertToHtmlEmail(homework);
-        
-        let emailTitle = 'Upcoming Homework Reminder';
-        if (emailPrefix) {
-            emailTitle = `${emailPrefix} ${emailTitle}`;
-        }
-        
-        // For Node.js - requires nodemailer setup
-        const nodemailer = require('nodemailer');
-        const transporter = nodemailer.createTransport(createMailTransportOptions(emailConfig));
-        
-        await transporter.sendMail({
-            from: emailConfig.from,
-            to: emailAddress,
-            subject: emailTitle,
-            text: homework,
-            html: htmlContent
-        });
-        
-        return { sent: true, homeworkCount: filteredHomeworkList.length };
-    }
-    return { sent: false, homeworkCount: 0 };
+
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport(createMailTransportOptions(emailConfig));
+    await transporter.sendMail({
+        from: emailConfig.from,
+        to: recipients,
+        subject: email.subject,
+        text: email.text,
+        html: email.html
+    });
+
+    WebUntisAPI.logVerbose(`Email sent to ${recipients.join(', ')}`);
+    return { sent: true, homeworkCount: email.homeworkCount, contentCount: email.contentCount, recipients };
+}
+
+/**
+ * Normalize the recipients: a single address, a list or a comma/semicolon separated string
+ * @param {string|Array<string>} emailAddress - Recipient(s)
+ * @returns {Array<string>} Trimmed, non-empty addresses
+ */
+function getEmailRecipients(emailAddress) {
+    const list = Array.isArray(emailAddress) ? emailAddress : String(emailAddress || '').split(/[,;]/);
+    return list.map(address => String(address || '').trim()).filter(Boolean);
 }
 
 /**
@@ -176,167 +227,6 @@ function createMailTransportOptions(emailConfig) {
             ? { type: 'OAuth2', user, clientId, clientSecret, refreshToken }
             : { user, pass: password }
     };
-}
-
-/**
- * Convert plain text homework format to HTML for better email display
- * Works in both Google Apps Script and Node.js
- * 
- * @param {string} plainText - The plain text homework string
- * @returns {string} HTML formatted string
- */
-function convertToHtmlEmail(plainText) {
-    // Define emoji mappings to avoid encoding issues
-    const emojis = {
-        books: '&#x1F4DA;',      // 📚
-        clipboard: '&#x1F4CB;',   // 📋
-        calendar: '&#x1F4C5;',    // 📅
-        memo: '&#x1F4DD;',        // 📝
-        robot: '&#x1F916;'        // 🤖
-    };
-    
-    // Start with basic HTML structure
-    let html = `<!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; 
-                line-height: 1.6; 
-                color: #333; 
-                margin: 20px; 
-                background-color: #f9f9f9;
-            }
-            .container { 
-                max-width: 600px; 
-                margin: 0 auto; 
-                background-color: white; 
-                padding: 30px; 
-                border-radius: 10px; 
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            h1 { 
-                color: #2c3e50; 
-                border-bottom: 3px solid #3498db; 
-                padding-bottom: 15px; 
-                margin-bottom: 25px;
-                font-size: 24px;
-            }
-            .homework-item { 
-                background-color: #f8f9fa; 
-                border-left: 4px solid #3498db; 
-                margin: 20px 0; 
-                padding: 20px; 
-                border-radius: 8px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            }
-            .subject { 
-                font-weight: bold; 
-                font-size: 18px; 
-                color: #2c3e50; 
-                margin-bottom: 8px;
-            }
-            .due-date { 
-                color: #e74c3c; 
-                font-weight: bold; 
-                margin-bottom: 12px; 
-                font-size: 16px;
-            }
-            .description { 
-                color: #555; 
-                line-height: 1.6; 
-                background-color: white;
-                padding: 12px;
-                border-radius: 4px;
-                border: 1px solid #e9ecef;
-            }
-            .emoji { 
-                font-size: 1.3em; 
-                margin-right: 8px;
-            }
-            .separator { 
-                border-top: 1px solid #ddd; 
-                margin: 25px 0; 
-            }
-            .footer {
-                margin-top: 40px; 
-                padding-top: 20px; 
-                border-top: 2px solid #ddd; 
-                color: #666; 
-                font-size: 13px;
-                text-align: center;
-            }
-        </style>
-    </head>
-    <body>
-    <div class="container">
-    `;
-    
-    // Split the text into lines and process
-    const lines = plainText.split('\n');
-    let inHomeworkSection = false;
-    let homeworkItemOpen = false;
-    
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        
-        if (line.includes('HOMEWORK FOR NEXT')) {
-            // Main header - remove any problematic characters and add emoji safely
-            const cleanLine = line.replace(/[^\w\s\d\(\)]/g, '').trim();
-            html += `<h1>${emojis.books} ${cleanLine}</h1>\n`;
-            inHomeworkSection = true;
-        } else if (line.startsWith('=') && line.length > 10) {
-            // Skip separator lines
-            continue;
-        } else if (line.match(/^\d+\./)) {
-            // Close previous homework item if open
-            if (homeworkItemOpen) {
-                html += `</div>\n`;
-            }
-            
-            // Homework item start
-            html += `<div class="homework-item">\n`;
-            homeworkItemOpen = true;
-            
-            // Extract subject from the line, handling emoji issues
-            let subject = line.substring(line.indexOf('.') + 1).trim();
-            // Remove status emojis that might not display properly
-            subject = subject.replace(/^[^\w\s]*\s*/, '').trim();
-            html += `<div class="subject">${emojis.clipboard} ${subject}</div>\n`;
-        } else if (line.includes('Due:')) {
-            // Due date
-            const dueText = line.replace(/^[^\w\s]*\s*/, '').trim();
-            html += `<div class="due-date">${emojis.calendar} ${dueText}</div>\n`;
-        } else if (line.length > 3 && !line.startsWith('-') && !line.startsWith('No ')) {
-            // Description - remove leading emoji characters that might be problematic
-            let description = line.replace(/^[^\w\s]*\s*/, '').trim();
-            if (description.length > 0) {
-                html += `<div class="description">${emojis.memo} ${description}</div>\n`;
-            }
-        } else if (line.startsWith('-') && line.length > 10) {
-            // End of homework item marker - we'll close when we start a new one
-            continue;
-        }
-    }
-    
-    // Close any open homework item
-    if (homeworkItemOpen) {
-        html += `</div>\n`;
-    }
-    
-    // Add footer and close HTML structure
-    html += `
-    <div class="footer">
-        <p>${emojis.robot} This email was automatically generated by WebUntis API</p>
-    </div>
-    </div>
-    </body>
-    </html>
-    `;
-    
-    return html;
 }
 
 /**
@@ -1158,7 +1048,8 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         sendHomeworkEmailNodejs,
-        convertToHtmlEmail,
+        createHomeworkEmail,
+        getEmailRecipients,
         syncHomeworkToCalendarNodejs,
         listAvailableCalendarsNodejs,
         syncTimetableToCalendarNodejs

@@ -262,30 +262,59 @@ class WebUntisAPI {
      * @param {Array|null} homeworkList - Array of homework objects or null
      * @param {number} days - Number of days for display purposes
      * @param {boolean} onlyIncomplete - Whether only incomplete homework was requested
-     * @returns {string} Formatted string with Subject, Due, Text
+     * @param {string} language - 'de' or 'en' (default: 'de')
+     * @param {Object} options
+     * @param {boolean} options.includeText - Include the homework description (default: true)
+     * @returns {string} Formatted string with Subject, Assigned, Due, Text
      */
-    formatHomework(homeworkList, days = 7, onlyIncomplete = true) {
+    formatHomework(homeworkList, days = 7, onlyIncomplete = true, language = 'de', options = {}) {
+        const texts = WebUntisAPI.getTexts(language);
+        const includeText = options.includeText !== false;
+        const title = `📚 ${texts.homeworkTitle(days, onlyIncomplete)}`;
+        let formattedString = `${title}\n${'='.repeat(title.length)}\n`;
+
         if (!homeworkList || homeworkList.length === 0) {
-            return `No ${onlyIncomplete ? 'open ' : ''}homework found for the next ${days} days.`;
+            return formattedString + texts.noHomework;
         }
-        
-        // Format the homework
-        let formattedString = `📚 HOMEWORK FOR NEXT ${days} DAYS (${homeworkList.length} ${onlyIncomplete ? 'open ' : ''}assignments)\n`;
-        formattedString += "=".repeat(60) + "\n\n";
-        
+
         homeworkList.forEach((hw, index) => {
-            const dueDate = this.formatWebUntisDate(hw.dueDate);
-            const subject = hw.subjectName || 'Unknown Subject';
-            const text = hw.text || 'No description';
             const status = hw.completed ? '✅' : '📋';
-            
-            formattedString += `${index + 1}. ${status} ${subject}\n`;
-            formattedString += `   📅 Due: ${dueDate}\n`;
-            formattedString += `   📝 ${text}\n`;
-            formattedString += "-".repeat(40) + "\n";
+            formattedString += `${index + 1}. ${status} ${hw.subjectName || texts.unknownSubject}\n`;
+            if (hw.date) {
+                formattedString += `   🗓️ ${texts.assigned}: ${WebUntisAPI.formatDateWithWeekday(hw.date, language)}\n`;
+            }
+            formattedString += `   📅 ${texts.due}: ${WebUntisAPI.formatDateWithWeekday(hw.dueDate, language)}\n`;
+            if (includeText) {
+                formattedString += `   📝 ${(hw.text || texts.noDescription).replace(/\n/g, '\n      ')}\n`;
+            }
         });
-        
-        return formattedString;
+
+        return formattedString.trimEnd();
+    }
+
+    /**
+     * Format today's Lehrstoff and the open homework as plain text (email text part, Home Assistant message)
+     * @param {Object} update - Result of getSchoolUpdate()
+     * @param {number} days - Number of days the homework was looked up for
+     * @param {string} language - 'de' or 'en' (default: 'de')
+     * @param {Object} options
+     * @param {boolean} options.details - Include the homework descriptions (default: true)
+     * @returns {string} Formatted text
+     */
+    formatSchoolUpdateText(update, days, language = 'de', options = {}) {
+        const texts = WebUntisAPI.getTexts(language);
+        const title = `📖 ${texts.contentTitle} (${WebUntisAPI.formatDateWithWeekday(new Date(), language)})`;
+        const lines = [title, '='.repeat(title.length)];
+
+        if (update.teachingContents.length > 0) {
+            update.teachingContents.forEach(entry => lines.push(`${entry.subject}: ${entry.contents.join(' / ').replace(/\n/g, '\n   ')}`));
+        } else {
+            lines.push(texts.noContent);
+        }
+
+        lines.push('', this.formatHomework(update.homeworkList, days, true, language, { includeText: options.details !== false }));
+        lines.push('', texts.footer);
+        return lines.join('\n');
     }
 
     /**
@@ -294,9 +323,25 @@ class WebUntisAPI {
      * @param {boolean} onlyIncomplete - Only show incomplete homework (default: true)
      * @returns {Promise<string>} Formatted string with Subject, Due, Text
      */
-    async getFormattedHomework(days = 7, onlyIncomplete = true) {
+    async getFormattedHomework(days = 7, onlyIncomplete = true, language = 'de') {
         const homeworkList = await this.getHomeworkList(days, onlyIncomplete);
-        return this.formatHomework(homeworkList, days, onlyIncomplete);
+        return this.formatHomework(homeworkList, days, onlyIncomplete, language);
+    }
+
+    /**
+     * Collect what is sent in the email and the Home Assistant notification
+     * @param {number} days - Number of days to look ahead for homework
+     * @returns {Promise<Object>} { homeworkList, teachingContents } - open homework without the one due today
+     *                            (too late for a reminder) and today's Lehrstoff
+     */
+    async getSchoolUpdate(days) {
+        const todayStr = parseInt(WebUntisAPI.formatDate(new Date()));
+        const homeworkList = ((await this.getHomeworkList(days, true)) || []).filter(hw => {
+            if (hw.dueDate === todayStr) WebUntisAPI.logVerbose(`Skipped homework due today: ${hw.subjectName}: ${hw.text}`);
+            return hw.dueDate !== todayStr;
+        });
+        const teachingContents = await this.getTodaysTeachingContents();
+        return { homeworkList, teachingContents };
     }
 
     /**
@@ -649,6 +694,32 @@ class WebUntisAPI {
     }
 
     /**
+     * Collect today's teaching content ("Lehrstoff") per subject in timetable order
+     * @returns {Promise<Array>} Entries like { subject, subjectLong, contents: [] }, only subjects with content
+     */
+    async getTodaysTeachingContents() {
+        const today = WebUntisAPI.formatDateForAPI(new Date());
+        const lessons = (await this.getPastLessons(0))
+            .filter(lesson => !lesson.isCancelled && lesson.date.substring(0, 10) === today)
+            .sort((a, b) => a.startTime - b.startTime);
+
+        const subjects = new Map();
+        for (const lesson of lessons) {
+            const content = await this.getTeachingContent(lesson);
+            if (!content) {
+                WebUntisAPI.logVerbose(`No Lehrstoff today: ${lesson.subject}`);
+                continue;
+            }
+            if (!subjects.has(lesson.subject)) {
+                subjects.set(lesson.subject, { subject: lesson.subject, subjectLong: lesson.subjectLong, contents: [] });
+            }
+            const contents = subjects.get(lesson.subject).contents;
+            if (!contents.includes(content)) contents.push(content);
+        }
+        return Array.from(subjects.values());
+    }
+
+    /**
      * Build the cell text of a lesson: Lehrstoff in the first line, "HÜ: <Hausübung>" in the next line
      * @param {Array<string>} contents - Teaching contents of the day
      * @param {Array<string>} homeworks - Homework texts of the day
@@ -658,6 +729,62 @@ class WebUntisAPI {
         return [contents.join(' / '), homeworks.length > 0 ? `HÜ: ${homeworks.join('; ')}` : '']
             .filter(Boolean)
             .join('\n');
+    }
+
+    /**
+     * Format a date with the short weekday, e.g. "Di, 13.10.2026" or "Tue, 13.10.2026"
+     * @param {number|string|Date} date - Date in YYYYMMDD format or Date object
+     * @param {string} language - 'de' or 'en' (default: 'de')
+     * @returns {string} Formatted date
+     */
+    static formatDateWithWeekday(date, language = 'de') {
+        let day = date;
+        if (!(date instanceof Date)) {
+            const dateStr = String(date);
+            day = new Date(parseInt(dateStr.substring(0, 4)), parseInt(dateStr.substring(4, 6)) - 1, parseInt(dateStr.substring(6, 8)));
+        }
+        const dd = String(day.getDate()).padStart(2, '0');
+        const mm = String(day.getMonth() + 1).padStart(2, '0');
+        return `${WebUntisAPI.getTexts(language).weekdays[day.getDay()]}, ${dd}.${mm}.${day.getFullYear()}`;
+    }
+
+    /**
+     * Texts of the email and the Home Assistant notification
+     * @param {string} language - 'de' or 'en', anything else falls back to 'de'
+     * @returns {Object} Texts of the language
+     */
+    static getTexts(language) {
+        const texts = {
+            de: {
+                weekdays: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+                emailSubject: 'Hausübungen und Lehrstoff',
+                haTitle: '📚 Hausübungen und Lehrstoff',
+                contentTitle: 'Lehrstoff heute',
+                homeworkTitle: (days, onlyIncomplete = true) => `${onlyIncomplete ? 'Offene ' : ''}Hausübungen (nächsten ${days} Tage)`,
+                assigned: 'Aufgegeben',
+                due: 'Fällig',
+                noContent: 'Heute wurde kein Lehrstoff eingetragen.',
+                noHomework: 'Keine offenen Hausübungen.',
+                noDescription: 'Keine Beschreibung',
+                unknownSubject: 'Unbekanntes Fach',
+                footer: 'Diese Nachricht wurde automatisch aus WebUntis erstellt.'
+            },
+            en: {
+                weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+                emailSubject: 'Homework and lesson content',
+                haTitle: '📚 Homework and lesson content',
+                contentTitle: 'Lesson content today',
+                homeworkTitle: (days, onlyIncomplete = true) => `${onlyIncomplete ? 'Open ' : ''}homework (next ${days} days)`,
+                assigned: 'Assigned',
+                due: 'Due',
+                noContent: 'No lesson content was entered today.',
+                noHomework: 'No open homework.',
+                noDescription: 'No description',
+                unknownSubject: 'Unknown subject',
+                footer: 'This message was generated automatically from WebUntis.'
+            }
+        };
+        return texts[language] || texts.de;
     }
 
     /**

@@ -20,6 +20,7 @@ const HA_CONFIG = {
     token: 'YOUR_LONG_LIVED_ACCESS_TOKEN',         // Long-lived access token from HA profile
     service: 'notify.your_notification_service',   // Your notification service (e.g., 'notify.mobile_app_phone', 'notify.telegram')
     daysAheadNotifications: 3,                     // How many days ahead to check for homework notifications
+    language: 'de',                                // Language of the notification: 'de' or 'en'
 };
 
 // Google Calendar Configuration (Calendar API and other Google services)
@@ -55,9 +56,10 @@ const CALENDAR_CONFIG = {
 // Mail Notification Configuration (separated for better organization)
 const MAIL_NOTIFICATION_CONFIG = {
     enabled: true,                                 // Set to false to disable email notifications
-    email: 'your-email@gmail.com',                // Your email address for notifications
+    email: ['your-email@gmail.com'],              // Recipient(s) of the notification, e.g. ['parent1@gmail.com', 'parent2@gmail.com']
     homeworkDaysAhead: 3,                          // How many days ahead to check for homework in email notifications
-    titlePrefix: null,                             // Optional prefix for email subject (e.g., "📚 School:", "Student Name:")
+    language: 'de',                                // Language of the email: 'de' or 'en'
+    titlePrefix: null,                             // Optional prefix for email subject (e.g., "School:", "Student Name:")
     emailConfig: {
         // For Node.js email sending (using nodemailer)
         service: 'gmail',                          // Email service provider
