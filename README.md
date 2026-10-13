@@ -121,6 +121,7 @@ Run single actions with `node StartNode.js <action ...> [--days N]`:
 - `email` - Send homework email
 - `homework` - Sync homework to Google Calendar
 - `ha` - Send Home Assistant notification
+- `sms` - Send the open homework as SMS (see below)
 - `timetable` - Sync timetable to Google Calendar
 - `lessons` - Write Lehrstoff and Hausübung to the Google Sheet (`--days 30` for the last 30 days)
 - `teachers` - Write the teacher names to the Google Sheet
@@ -128,6 +129,8 @@ Run single actions with `node StartNode.js <action ...> [--days N]`:
 - `all` - All configured actions
 
 Example: `node StartNode.js lessons teachers --days 14`. Add `--overwrite` to replace the sheet cells (and teacher names) with the WebUntis data instead of only appending what is missing (needs the current `SheetWebApp.js` deployed). Add `--verbose` for detailed logs (skipped lessons and homework, teacher names, every sheet cell and calendar event written or skipped). Without action, the actions listed in `ACTIONS` in `config.js` are run (all configured ones if it is not set).
+
+SMS: the open homework (compact, without emojis and due dates) is sent from your own Android phone with the open-source app [SMS Gateway for Android](https://sms-gate.app), so the SMS costs what your tariff charges. Install the app on a phone that stays switched on, start it in Cloud mode and put the username and password from its Home tab plus the recipients (`+43...`) into `SMS_CONFIG`. Test it with your own number first: `node StartNode.js sms --verbose`.
 
 Shortcuts:
 - `npm start` - Run the default actions

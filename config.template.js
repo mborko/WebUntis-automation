@@ -81,14 +81,27 @@ const SHEET_CONFIG = {
     syncDaysBack: 7,                               // How many days back to sync Lehrstoff and Hausübung
 };
 
+// SMS Configuration - the open homework is sent as SMS from your own Android phone with the app
+// "SMS Gateway for Android" (https://sms-gate.app): install it, start it in Cloud mode and copy username/password
+const SMS_CONFIG = {
+    enabled: true,                                 // Set to false to disable the SMS
+    url: 'https://api.sms-gate.app/3rdparty/v1/messages', // Cloud mode; for local mode use the address shown in the app
+    username: 'YOUR_SMS_GATEWAY_USERNAME',         // Shown on the Home tab of the app
+    password: 'YOUR_SMS_GATEWAY_PASSWORD',         // Shown on the Home tab of the app
+    phoneNumbers: ['+43YOUR_NUMBER'],              // Recipients in international format, e.g. ['+436641234567']
+    daysAhead: 3,                                  // Open homework of the next N days
+    language: 'de',                                // Language of the SMS: 'de' or 'en'
+    simNumber: null,                               // SIM slot (1-3) for dual SIM phones, null = setting of the app
+};
+
 // Actions run by "node StartNode.js" / "npm start" without arguments (Node.js only)
-// email, homework, ha, timetable, lessons, teachers - or 'sheet' for lessons + teachers, e.g. ['lessons', 'teachers']
+// email, homework, ha, sms, timetable, lessons, teachers - or 'sheet' for lessons + teachers, e.g. ['lessons', 'teachers']
 // null runs all configured actions; arguments override it, e.g. "node StartNode.js lessons"
 const ACTIONS = null;
 
 // Export for Node.js
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG, ACTIONS };
+    module.exports = { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG, SMS_CONFIG, ACTIONS };
 }
 
 /**

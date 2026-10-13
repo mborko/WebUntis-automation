@@ -68,6 +68,17 @@ const SHEET_CONFIG = {
     schoolYearStart: '2026-09-07',                 // Used by backfillSheet()
 };
 
+// Open homework as SMS from your own Android phone with the app "SMS Gateway for Android" (https://sms-gate.app)
+const SMS_CONFIG = {
+    url: 'https://api.sms-gate.app/3rdparty/v1/messages', // Cloud mode of the app
+    username: '<YOUR_SMS_GATEWAY_USERNAME>',       // Shown on the Home tab of the app
+    password: '<YOUR_SMS_GATEWAY_PASSWORD>',       // Shown on the Home tab of the app
+    phoneNumbers: ['<+43YOUR_NUMBER>'],            // Recipients in international format
+    daysAhead: 3,                                  // Open homework of the next N days
+    language: 'de',                                // Language of the SMS: 'de' or 'en'
+    simNumber: null,                               // SIM slot (1-3) for dual SIM phones, null = setting of the app
+};
+
 
 function runDaily(){
     //Step 1: Notify about homework
@@ -103,6 +114,10 @@ function syncHomework(){
 function syncTimetable(){
   console.log('📅 Syncing timetable to calendar...');
     syncTimetableToCalendarWorkflow(UNTIS_CONFIG, CALENDAR_CONFIG.timetable.calendarId, CALENDAR_CONFIG.timetable.syncDaysAhead);
+}
+
+function sendSms(){
+  sendHomeworkSms(UNTIS_CONFIG, SMS_CONFIG);
 }
 
 function syncSheet(){

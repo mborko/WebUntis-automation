@@ -293,6 +293,61 @@ class WebUntisAPI {
     }
 
     /**
+     * Format the open homework as compact SMS text: no emojis, no dates, one line per homework
+     * @param {Array} homeworkList - Homework objects from getSchoolUpdate()
+     * @param {number} days - Number of days the homework was looked up for
+     * @param {string} language - 'de' or 'en' (default: 'de')
+     * @returns {string|null} SMS text (GSM-7 characters only) or null if there is no homework
+     */
+    formatHomeworkSms(homeworkList, days, language = 'de') {
+        if (!homeworkList || homeworkList.length === 0) {
+            return null;
+        }
+
+        const texts = WebUntisAPI.getTexts(language);
+        const lines = [`${texts.homeworkTitle(days)}:`];
+        homeworkList.forEach(hw => {
+            const text = (hw.text || texts.noDescription).split(/\s*\n\s*/).filter(Boolean).join('; ');
+            lines.push(`${hw.subjectName || texts.unknownSubject}: ${text}`);
+        });
+        return WebUntisAPI.toGsmText(lines.join('\n'));
+    }
+
+    /**
+     * Reduce a text to the GSM-7 SMS alphabet, so one SMS part holds 160 instead of 70 characters
+     * Typographic characters are replaced, accents removed where possible, everything else (e.g. emojis) dropped
+     * @param {string} text - Text
+     * @returns {string} Text with GSM-7 characters only
+     */
+    static toGsmText(text) {
+        const gsm = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà' +
+            '^{}\\[~]|€';
+        const replacements = {
+            '–': '-', '—': '-', '‒': '-', '−': '-', '•': '-', '·': '-',
+            '„': '"', '“': '"', '”': '"', '«': '"', '»': '"',
+            '‚': "'", '‘': "'", '’': "'", '´': "'", '`': "'",
+            '…': '...', '×': 'x', '\t': ' ', '\u00a0': ' '
+        };
+
+        return Array.from(String(text || '')).map(char => {
+            if (gsm.includes(char)) return char;
+            if (replacements[char] !== undefined) return replacements[char];
+            const base = char.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            return base.length === 1 && gsm.includes(base) ? base : '';
+        }).join('').replace(/ {2,}/g, ' ');
+    }
+
+    /**
+     * Estimate the number of SMS parts of a GSM-7 text (characters like € or [ count twice)
+     * @param {string} text - Text from toGsmText()
+     * @returns {number} Number of SMS parts
+     */
+    static countSmsParts(text) {
+        const length = Array.from(text).reduce((sum, char) => sum + ('^{}\\[~]|€'.includes(char) ? 2 : 1), 0);
+        return length <= 160 ? 1 : Math.ceil(length / 153);
+    }
+
+    /**
      * Format today's Lehrstoff and the open homework as plain text (email text part, Home Assistant message)
      * @param {Object} update - Result of getSchoolUpdate()
      * @param {number} days - Number of days the homework was looked up for

@@ -15,6 +15,7 @@ const { WebUntisAPI, getWebUntisApiInstance, clearWebUntisApiInstance } = requir
 const { sendHomeworkEmailNodejs, getEmailRecipients, syncHomeworkToCalendarNodejs, syncTimetableToCalendarNodejs } = require('./Google.js');
 const { sendHomeworkToHomeAssistant } = require('./HomeAssistant.js');
 const { syncLessonsToSheetNodejs, formatSheetResult } = require('./Sheets.js');
+const { sendHomeworkSmsNodejs } = require('./Sms.js');
 
 // ==========================================
 // CONFIGURATION (loaded from config.js)
@@ -31,7 +32,7 @@ try {
     throw error;
 }
 
-const { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG = {} } = config;
+const { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG = {}, SMS_CONFIG = {} } = config;
 
 // Placeholder detection matches the values used in config.template.js
 const isPlaceholder = (value) => !value || /YOUR_|your-|sender-email@/.test(value);
@@ -54,6 +55,15 @@ const isCalendarConfigured = () => {
 const isHomeAssistantConfigured = () => !isPlaceholder(HA_CONFIG.url) && !isPlaceholder(HA_CONFIG.token);
 
 const isSheetConfigured = () => !isPlaceholder(SHEET_CONFIG.webAppUrl) && !isPlaceholder(SHEET_CONFIG.secret);
+
+const isSmsConfigured = () =>
+    SMS_CONFIG.enabled !== false &&
+    !isPlaceholder(SMS_CONFIG.url) &&
+    !isPlaceholder(SMS_CONFIG.username) &&
+    !isPlaceholder(SMS_CONFIG.password) &&
+    Array.isArray(SMS_CONFIG.phoneNumbers) &&
+    SMS_CONFIG.phoneNumbers.length > 0 &&
+    !SMS_CONFIG.phoneNumbers.some(number => isPlaceholder(number));
 
 // ==========================================
 // STARTER FUNCTIONS
@@ -107,6 +117,17 @@ const ACTIONS = {
             return result.homeworkCount > 0 || result.contentCount > 0
                 ? `sent (${result.homeworkCount} homework, Lehrstoff of ${result.contentCount} subjects)`
                 : 'no homework and no Lehrstoff today, not sent';
+        }
+    },
+    sms: {
+        description: 'Send open homework as SMS',
+        isConfigured: isSmsConfigured,
+        hint: 'SMS_CONFIG.username, password and phoneNumbers',
+        run: async () => {
+            const result = await sendHomeworkSmsNodejs(UNTIS_CONFIG, SMS_CONFIG);
+            return result.sent
+                ? `sent to ${result.recipients.length} recipient(s) (${result.homeworkCount} homework, ${result.parts} SMS parts)`
+                : 'no homework, not sent';
         }
     },
     timetable: {
@@ -240,6 +261,7 @@ async function testNodeSetup() {
     console.log(`Calendar:       ${status(isCalendarConfigured())}`);
     console.log(`Home Assistant: ${status(isHomeAssistantConfigured())}`);
     console.log(`Google Sheet:   ${status(isSheetConfigured())}`);
+    console.log(`SMS:            ${status(isSmsConfigured())}`);
 
     try {
         await getWebUntisApiInstance(UNTIS_CONFIG);
@@ -351,7 +373,8 @@ module.exports = {
     HA_CONFIG,
     CALENDAR_CONFIG,
     MAIL_NOTIFICATION_CONFIG,
-    SHEET_CONFIG
+    SHEET_CONFIG,
+    SMS_CONFIG
 };
 
 // Auto-run if called directly
