@@ -48,16 +48,9 @@ class WebUntisAPI {
                 this.sessionId = response.result.sessionId;
                 this.personId = response.result.personId;
                 this.personType = response.result.personType;
-                
-                console.log('Authentication successful');
-                console.log(`Session ID: ${this.sessionId ? 'obtained' : 'missing'}`);
-                console.log(`Person ID: ${this.personId || 'unknown'}`);
-                console.log(`Person Type: ${this.personType || 'unknown'}`);
-                
+
                 // Try to get bearer token, but don't fail if it doesn't work
-                const bearerResult = await this.getBearerToken();
-                console.log(`Bearer token: ${bearerResult ? 'obtained' : 'using session-based auth'}`);
-                
+                await this.getBearerToken();
                 return true;
             }
             return false;
@@ -121,27 +114,16 @@ class WebUntisAPI {
                 }
             });
 
+            // Without a token (e.g. 403 for some schools) the session-based auth is used
             if (response.ok) {
                 const tokenValue = (await response.text()).trim();
-                if (tokenValue && tokenValue.length > 0) {
+                if (tokenValue) {
                     this.bearerToken = tokenValue;
-                    console.log('Bearer token obtained successfully');
-                    console.log(`Token length: ${tokenValue.length} characters`);
                     return true;
-                } else {
-                    console.log('Empty token response, will use session-based auth');
-                    return false;
                 }
-            } else if (response.status === 403) {
-                console.log('Bearer token access denied (403) - this is normal for some WebUntis configurations. Using session-based auth instead.');
-                return false;
-            } else {
-                console.log(`Bearer token request failed with status ${response.status}, will use session-based auth`);
-                return false;
             }
+            return false;
         } catch (error) {
-            console.log('Bearer token request failed:', error.toString());
-            console.log('This is often normal - will use session-based authentication instead.');
             return false;
         }
     }
@@ -159,7 +141,6 @@ class WebUntisAPI {
             this.personId = null;
             this.personType = null;
             this.bearerToken = null;
-            console.log('Logout successful');
             return true;
         } catch (error) {
             console.error('Logout failed:', error);
@@ -178,34 +159,29 @@ class WebUntisAPI {
             throw new Error('Not authenticated. Call authenticate() first.');
         }
 
-        try {
-            const url = `${this.apiBaseUrl}/homeworks/lessons?startDate=${startDate}&endDate=${endDate}`;
-            
-            const headers = {
-                'Cookie': `JSESSIONID=${this.sessionId}`,
-                'User-Agent': 'WebUntisAPI/1.0'
-            };
+        const url = `${this.apiBaseUrl}/homeworks/lessons?startDate=${startDate}&endDate=${endDate}`;
+        
+        const headers = {
+            'Cookie': `JSESSIONID=${this.sessionId}`,
+            'User-Agent': 'WebUntisAPI/1.0'
+        };
 
-            // Add bearer token if available
-            if (this.bearerToken) {
-                headers['Authorization'] = `Bearer ${this.bearerToken}`;
-            }
-
-            const response = await this.makeFetch(url, {
-                method: 'GET',
-                headers: headers
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            return data.data || data;
-        } catch (error) {
-            console.error('Failed to get homework:', error);
-            throw error;
+        // Add bearer token if available
+        if (this.bearerToken) {
+            headers['Authorization'] = `Bearer ${this.bearerToken}`;
         }
+
+        const response = await this.makeFetch(url, {
+            method: 'GET',
+            headers: headers
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data.data || data;
     }
 
     /**
@@ -248,42 +224,36 @@ class WebUntisAPI {
         const startDateStr = WebUntisAPI.formatDate(startDate);
         const endDateStr = WebUntisAPI.formatDate(future);
         
-        try {
-            const homeworkData = await this.getHomework(startDateStr, endDateStr);
-            const homework = homeworkData.homeworks || [];
-            const lessons = homeworkData.lessons || [];
-            
-            // Create lesson lookup map for subjects
-            const lessonMap = new Map(lessons.map(l => [l.id, l.subject]));
-            
-            // Filter homework
-            let filteredHomework = homework;
-            if (onlyIncomplete) {
-                filteredHomework = homework.filter(hw => !hw.completed);
-            }
-            
-            // Sort by due date
-            filteredHomework.sort((a, b) => {
-                const dateA = parseInt(a.dueDate);
-                const dateB = parseInt(b.dueDate);
-                return dateA - dateB;
-            });
-            
-            // Return null if no homework found
-            if (filteredHomework.length === 0) {
-                return null;
-            }
-            
-            // Add subject information to homework objects
-            return filteredHomework.map(hw => ({
-                ...hw,
-                subjectName: lessonMap.get(hw.lessonId) || hw.subject || 'Unknown Subject'
-            }));
-            
-        } catch (error) {
-            console.error('Failed to get homework list:', error);
-            throw error;
+        const homeworkData = await this.getHomework(startDateStr, endDateStr);
+        const homework = homeworkData.homeworks || [];
+        const lessons = homeworkData.lessons || [];
+        
+        // Create lesson lookup map for subjects
+        const lessonMap = new Map(lessons.map(l => [l.id, l.subject]));
+        
+        // Filter homework
+        let filteredHomework = homework;
+        if (onlyIncomplete) {
+            filteredHomework = homework.filter(hw => !hw.completed);
         }
+        
+        // Sort by due date
+        filteredHomework.sort((a, b) => {
+            const dateA = parseInt(a.dueDate);
+            const dateB = parseInt(b.dueDate);
+            return dateA - dateB;
+        });
+        
+        // Return null if no homework found
+        if (filteredHomework.length === 0) {
+            return null;
+        }
+        
+        // Add subject information to homework objects
+        return filteredHomework.map(hw => ({
+            ...hw,
+            subjectName: lessonMap.get(hw.lessonId) || hw.subject || 'Unknown Subject'
+        }));
     }
 
     /**
@@ -340,35 +310,24 @@ class WebUntisAPI {
             throw new Error('Not authenticated. Call authenticate() first.');
         }
 
-        try {
-            // Convert Date objects to strings if needed
-            const startDateStr = startDate instanceof Date ? WebUntisAPI.formatDateForAPI(startDate) : startDate;
-            const endDateStr = endDate instanceof Date ? WebUntisAPI.formatDateForAPI(endDate) : endDate;
-            
-            // Use provided resourceId or get from config
-            const studentId = resourceId || this.config?.resourceId;
-            
-            if (!studentId || studentId === '<YOUR_STUDENT_RESOURCE_ID>') {
-                throw new Error(`Student Resource ID is required for timetable access!`);
-            }
-            
-            console.log(`📅 Getting timetable data from ${startDateStr} to ${endDateStr}`);
-            
-            // Get timetable data for the specified period
-            const timetableData = await this.getTimetableDataForPeriod(startDateStr, endDateStr, studentId);
-            
-            if (!timetableData || !timetableData.days || timetableData.days.length === 0) {
-                console.log('📅 No timetable data found for the specified period');
-                return null;
-            }
-            
-            console.log(`📅 Found ${timetableData.days.length} days with data`);
-            return timetableData;
-            
-        } catch (error) {
-            console.error('Failed to get timetable data:', error);
-            throw error;
+        // Convert Date objects to strings if needed
+        const startDateStr = startDate instanceof Date ? WebUntisAPI.formatDateForAPI(startDate) : startDate;
+        const endDateStr = endDate instanceof Date ? WebUntisAPI.formatDateForAPI(endDate) : endDate;
+        
+        // Use provided resourceId or get from config
+        const studentId = resourceId || this.config?.resourceId;
+        
+        if (!studentId || studentId === '<YOUR_STUDENT_RESOURCE_ID>') {
+            throw new Error(`Student Resource ID is required for timetable access!`);
         }
+
+        // Get timetable data for the specified period
+        const timetableData = await this.getTimetableDataForPeriod(startDateStr, endDateStr, studentId);
+
+        if (!timetableData || !timetableData.days || timetableData.days.length === 0) {
+            return null;
+        }
+        return timetableData;
     }
 
     /**
@@ -391,8 +350,6 @@ class WebUntisAPI {
 
         // Direct call to timetable entries endpoint
         const entriesUrl = `https://${this.server}/WebUntis/api/rest/view/v1/timetable/entries?start=${startDate}&end=${endDate}&format=2&resourceType=STUDENT&resources=${studentId}&periodTypes=&timetableType=MY_TIMETABLE`;
-        
-        console.log(`📡 Fetching timetable entries from: ${entriesUrl}`);
 
         const response = await this.makeFetch(entriesUrl, {
             method: 'GET',
@@ -400,16 +357,11 @@ class WebUntisAPI {
         });
 
         if (!response.ok) {
-            console.error(`❌ Timetable HTTP error! status: ${response.status}`);
             const responseText = await response.text();
-            console.error(`Timetable Response: ${responseText}`);
-            throw new Error(`Timetable HTTP error! status: ${response.status}`);
+            throw new Error(`Timetable HTTP error! status: ${response.status}: ${responseText.substring(0, 200)}`);
         }
 
-        const data = await response.json();
-        console.log(`📊 Timetable data: ${data.days?.length || 0} days found`);
-        
-        return data;
+        return await response.json();
     }
 
     /**
@@ -421,14 +373,9 @@ class WebUntisAPI {
      * @returns {Array|null} Array of processed lesson objects or null if no lessons
      */
     processTimetableData(timetableData, options = {}) {
-        console.log('🔍 Processing timetable data...');
-        
         if (!timetableData || !timetableData.days) {
-            console.log('❌ No timetable data or days found');
             return null;
         }
-
-        console.log(`📅 Processing ${timetableData.days.length} days`);
 
         const opts = {
             skipCancelled: false,
@@ -436,43 +383,26 @@ class WebUntisAPI {
             ...options
         };
 
-        console.log('⚙️ Processing options:', JSON.stringify(opts, null, 2));
-
         const lessons = [];
-        let totalEntries = 0;
-        let skippedCancelled = 0;
-        let processedSuccessfully = 0;
-        let processingErrors = 0;
 
-        timetableData.days.forEach((day, dayIndex) => {
-            console.log(`📅 Processing day ${dayIndex + 1}/${timetableData.days.length}: ${day.date}`);
-            
+        timetableData.days.forEach(day => {
             if (!day.gridEntries || !Array.isArray(day.gridEntries)) {
-                console.log(`⚠️ No gridEntries found for day ${day.date}`);
                 return;
             }
-            
-            console.log(`📊 Found ${day.gridEntries.length} grid entries for ${day.date}`);
-            totalEntries += day.gridEntries.length;
 
-            day.gridEntries.forEach((entry, entryIndex) => {
-                console.log(`📚 Processing entry ${entryIndex + 1}/${day.gridEntries.length} for ${day.date}`);
-
+            day.gridEntries.forEach(entry => {
                 // Skip cancelled lessons if option is set
+                if (opts.skipCancelled && entry.status === 'CANCELLED') {
+                    return;
+                }
+
                 // Positions differ between schools, so look elements up by type
                 const subjectElement = WebUntisAPI.findTimetableElement(entry, 'SUBJECT', 'position2');
                 const teacherElement = WebUntisAPI.findTimetableElement(entry, 'TEACHER', 'position1');
                 const roomElement = WebUntisAPI.findTimetableElement(entry, 'ROOM', 'position3');
 
-                if (opts.skipCancelled && entry.status === 'CANCELLED') {
-                    console.log(`⏭️ Skipping cancelled lesson: ${subjectElement?.displayName || 'Unknown Subject'}`);
-                    skippedCancelled++;
-                    return;
-                }
-
                 try {
-                    // Parse lesson information
-                    const lesson = {
+                    lessons.push({
                         id: entry.ids?.[0] || null,
                         date: day.date,
                         startTime: new Date(entry.duration.start),
@@ -494,35 +424,30 @@ class WebUntisAPI {
                         lessonInfo: opts.includeNotes ? entry.lessonInfo || '' : '',
                         texts: opts.includeNotes ? entry.texts || [] : [],
                         rawEntry: entry // Keep reference to original data
-                    };
-
-                    lessons.push(lesson);
-                    processedSuccessfully++;
-                    
-                    console.log(`✅ Successfully processed lesson: ${lesson.subject} (${lesson.teacher}) at ${lesson.startTime.toLocaleTimeString()}`);
-
+                    });
                 } catch (error) {
-                    console.error(`❌ Error processing lesson entry: ${error.toString()}`);
-                    processingErrors++;
+                    console.error(`Error processing lesson entry on ${day.date}: ${error.toString()}`);
                 }
             });
         });
 
-        console.log('📊 Processing Summary:');
-        console.log(`   📅 Days processed: ${timetableData.days.length}`);
-        console.log(`   📋 Total entries found: ${totalEntries}`);
-        console.log(`   ✅ Successfully processed: ${processedSuccessfully}`);
-        console.log(`   ⏭️ Skipped cancelled: ${skippedCancelled}`);
-        console.log(`   ❌ Processing errors: ${processingErrors}`);
-        console.log(`   📚 Final lessons array length: ${lessons.length}`);
+        return lessons.length > 0 ? lessons : null;
+    }
 
-        if (lessons.length === 0) {
-            console.log('⚠️ No lessons found after processing - returning null');
-            return null;
-        }
+    /**
+     * Get the processed lessons (including cancelled ones) of the last N days up to today
+     * Fetch them once and pass them to getLessonSheetEntries() and getSubjectTeachers()
+     * to avoid loading the timetable twice
+     * @param {number} daysBack - Number of days to look back including today
+     * @returns {Promise<Array>} Processed lesson objects (empty if none)
+     */
+    async getPastLessons(daysBack) {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - daysBack);
 
-        console.log(`✅ Returning ${lessons.length} processed lessons`);
-        return lessons;
+        const timetableData = await this.getTimetableData(startDate, endDate);
+        return this.processTimetableData(timetableData) || [];
     }
 
     /**
@@ -566,7 +491,7 @@ class WebUntisAPI {
         });
 
         if (!response.ok) {
-            console.log(`⚠️ Could not get lesson details for ${lesson.subject} on ${lesson.date} (status ${response.status})`);
+            console.log(`Could not get lesson details for ${lesson.subject} on ${lesson.date} (status ${response.status})`);
             return '';
         }
 
@@ -578,18 +503,19 @@ class WebUntisAPI {
      * Get the regular teacher of each subject with full name, e.g. { D: 'Wohlgenannt Claudia (WOH)' }
      * The regular teacher is taken from the timetable (substitutes are ignored),
      * the full name from the office hours ("Sprechstunden") list
-     * @param {number} daysBack - Number of days of timetable to look at (default: 28)
+     * @param {Array|null} lessons - Lessons from getPastLessons(), fetched for the last daysBack days if omitted
+     * @param {number} daysBack - Number of days of timetable to look at if no lessons are given (default: 28)
      * @returns {Promise<Object>} Subject short name -> "Surname Firstname (SHORT)"
      */
-    async getSubjectTeachers(daysBack = 28) {
+    async getSubjectTeachers(lessons = null, daysBack = 28) {
         const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(endDate.getDate() - daysBack);
+        if (!lessons) {
+            lessons = await this.getPastLessons(daysBack);
+        }
 
         // 1. Count the regular teacher of each subject; for substituted lessons the regular teacher is "removed"
         const counts = {};
-        const timetableData = await this.getTimetableData(startDate, endDate);
-        (this.processTimetableData(timetableData) || []).forEach(lesson => {
+        lessons.forEach(lesson => {
             for (let i = 1; i <= 7; i++) {
                 (lesson.rawEntry[`position${i}`] || []).forEach(element => {
                     const regular = element.current?.type === 'TEACHER' && element.current.status === 'REGULAR'
@@ -628,7 +554,7 @@ class WebUntisAPI {
                 if (match) fullNames.set(match[1], officeHour.teacher.trim());
             });
         } catch (error) {
-            console.log(`⚠️ Could not get office hours for teacher names: ${error.toString()}`);
+            console.log(`Could not get office hours for teacher names: ${error.toString()}`);
         }
 
         // 3. Most frequent regular teacher per subject, only if the full name is known
@@ -638,7 +564,7 @@ class WebUntisAPI {
             if (fullNames.has(shortName)) {
                 teachers[subject] = fullNames.get(shortName);
             } else {
-                console.log(`⚠️ No full name found for teacher ${shortName} (${subject})`);
+                console.log(`No full name found for teacher ${shortName} (${subject})`);
             }
         });
         return teachers;
@@ -648,12 +574,16 @@ class WebUntisAPI {
      * Collect teaching content ("Lehrstoff") and homework ("Hausübung") per subject and day
      * for the last N days, e.g. to fill a class overview spreadsheet
      * @param {number} daysBack - Number of days to look back including today (default: 7)
+     * @param {Array|null} lessons - Lessons from getPastLessons() covering at least daysBack days, fetched if omitted
      * @returns {Promise<Array>} Entries like { subject, date: 'YYYY-MM-DD', contents: [], homeworks: [], text: '<Lehrstoff>\nHÜ: <Hausübung>' }
      */
-    async getLessonSheetEntries(daysBack = 7) {
+    async getLessonSheetEntries(daysBack = 7, lessons = null) {
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(endDate.getDate() - daysBack);
+        if (!lessons) {
+            lessons = await this.getPastLessons(daysBack);
+        }
 
         const groups = new Map();
         const getGroup = (subject, date) => {
@@ -668,10 +598,10 @@ class WebUntisAPI {
             if (trimmed && !list.includes(trimmed)) list.push(trimmed);
         };
 
-        // 1. Lehrstoff from the class register, one request per lesson
-        const timetableData = await this.getTimetableData(startDate, endDate);
-        const lessons = this.processTimetableData(timetableData, { skipCancelled: true }) || [];
-        for (const lesson of lessons) {
+        // 1. Lehrstoff from the class register, one request per lesson (the given lessons may cover more days)
+        const firstDate = WebUntisAPI.formatDateForAPI(startDate);
+        const lessonsInRange = lessons.filter(lesson => !lesson.isCancelled && lesson.date.substring(0, 10) >= firstDate);
+        for (const lesson of lessonsInRange) {
             const content = await this.getTeachingContent(lesson);
             addUnique(getGroup(lesson.subject, lesson.date.substring(0, 10)).contents, content);
         }
@@ -937,7 +867,6 @@ async function getWebUntisApiInstance(config) {
     
     // If config changed or no instance exists, create new one
     if (!globalAPIInstance || globalConfigHash !== configHash || !globalAPIInstance.sessionId) {
-        console.log('🔄 Creating new API instance or config changed');
         globalAPIInstance = new WebUntisAPI(config);
         globalConfigHash = configHash;
         
@@ -945,10 +874,8 @@ async function getWebUntisApiInstance(config) {
         if (!(await globalAPIInstance.authenticate())) {
             throw new Error('Authentication failed');
         }
-    } else {
-        console.log('♻️ Reusing existing API instance');
     }
-    
+
     return globalAPIInstance;
 }
 
@@ -965,7 +892,6 @@ async function clearWebUntisApiInstance() {
     }
     globalAPIInstance = null;
     globalConfigHash = null;
-    console.log('🧹 Cleared global API instance');
 }
 
 /**
@@ -980,7 +906,7 @@ async function clearWebUntisApiInstance() {
 async function testWebUntisAPI(config, forceLogout = false) {
     // Use provided config or default values for testing purposes
     if (!config) {
-        console.warn('⚠️ No config provided - using default test config. Please provide your actual credentials for real usage.');
+        console.warn('No config provided - using default test config. Please provide your actual credentials for real usage.');
         config = {
             school: '<YOUR_SCHOOL_NAME>',        // Replace with your school name
             username: '<YOUR_USERNAME>',         // Replace with your username
@@ -991,27 +917,26 @@ async function testWebUntisAPI(config, forceLogout = false) {
 
     try {
         // Get or reuse API instance
-        console.log('🔐 Getting API instance...');
         const api = await getWebUntisApiInstance(config);
         
-        console.log('✅ Authentication successful!');
+        console.log('Authentication successful');
         
         // Get formatted homework for next 5 days
         const homework = await api.getFormattedHomework(5, true);
-        console.log('📚 Homework for next 5 days:');
+        console.log('Homework for next 5 days:');
         console.log(homework);
         
         // Optionally logout if requested
         if (forceLogout) {
             await api.logout();
             await clearWebUntisApiInstance();
-            console.log('🔓 Logged out and cleared instance');
+            console.log('Logged out and cleared instance');
         }
         
-        console.log('✅ Test completed successfully!');
+        console.log('Test completed successfully');
         
     } catch (error) {
-        console.error('❌ Error:', error.toString());
+        console.error('Error:', error.toString());
         throw error;
     }
 }

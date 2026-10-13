@@ -7,14 +7,14 @@
  * Instructions:
  * 1. Install dependencies: npm install
  * 2. Copy config.template.js to config.js and add your credentials
- * 3. Run: node StartNode.js
+ * 3. Run: node StartNode.js [action ...]  (node StartNode.js help lists the actions)
  */
 
 // Import for Node.js
 const { WebUntisAPI, getWebUntisApiInstance, clearWebUntisApiInstance } = require('./WebUntis.js');
 const { sendHomeworkEmailNodejs, syncHomeworkToCalendarNodejs, syncTimetableToCalendarNodejs } = require('./Google.js');
 const { sendHomeworkToHomeAssistant } = require('./HomeAssistant.js');
-const { syncLessonsToSheetNodejs } = require('./Sheets.js');
+const { syncLessonsToSheetNodejs, formatSheetResult } = require('./Sheets.js');
 
 // ==========================================
 // CONFIGURATION (loaded from config.js)
@@ -25,7 +25,7 @@ try {
     config = require('./config.js');
 } catch (error) {
     if (error.code === 'MODULE_NOT_FOUND' && error.message.includes('config.js')) {
-        console.error('❌ config.js not found. Copy config.template.js to config.js and add your credentials.');
+        console.error('config.js not found. Copy config.template.js to config.js and add your credentials.');
         process.exit(1);
     }
     throw error;
@@ -58,213 +58,262 @@ const isSheetConfigured = () => !isPlaceholder(SHEET_CONFIG.webAppUrl) && !isPla
 // STARTER FUNCTIONS
 // ==========================================
 
+// ==========================================
+// ACTIONS
+// ==========================================
+
 /**
- * Node.js Starter - Complete automation setup
- * Run this function to set up all your automated workflows
+ * Available actions; each run() returns a one-line summary or throws.
+ * lessons and teachers are written to the sheet with a single request (see runSheet)
  */
-async function StartNode() {
-    console.log('🚀 Starting Node.js WebUntis Automation...');
-    
-    try {
-        // 1. Test basic API connection
-        console.log('1️⃣ Testing WebUntis API connection...');
-        const api = await getWebUntisApiInstance(UNTIS_CONFIG);
-        const homework = await api.getFormattedHomework(MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, true);
-        console.log('✅ WebUntis API connection successful!');
-        console.log('📚 Sample homework:', homework.substring(0, 100) + '...');
-        
-        // 2. Send homework email notification (Node.js version)
-        console.log('\n2️⃣ Sending homework email notification...');
-        if (isEmailConfigured()) {
-            try {
-                await sendHomeworkEmailNodejs(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix, MAIL_NOTIFICATION_CONFIG.emailConfig);
-                console.log('✅ Homework email sent successfully!');
-            } catch (error) {
-                console.log('⚠️ Email sending failed:', error.message);
-            }
-        } else {
-            console.log('⚠️ Email not configured - skipping email notification');
-            console.log('💡 Tip: Configure MAIL_NOTIFICATION_CONFIG.email and MAIL_NOTIFICATION_CONFIG.emailConfig');
+const ACTIONS = {
+    email: {
+        description: 'Send homework email',
+        isConfigured: isEmailConfigured,
+        hint: 'MAIL_NOTIFICATION_CONFIG.email and emailConfig',
+        run: async () => {
+            const result = await sendHomeworkEmailNodejs(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix, MAIL_NOTIFICATION_CONFIG.emailConfig);
+            return result.sent ? `sent (${result.homeworkCount} homework)` : 'no homework, not sent';
         }
-        
-        // 3. Sync homework to Google Calendar (Node.js version)
-        console.log('\n3️⃣ Syncing homework to Google Calendar...');
-        if (isCalendarConfigured()) {
-            try {
-                const result = await syncHomeworkToCalendarNodejs(
-                    UNTIS_CONFIG, 
-                    CALENDAR_CONFIG.calendarCredentials, 
-                    CALENDAR_CONFIG.homework.syncDaysAhead, // Use configured days
-                    { 
-                        calendarId: CALENDAR_CONFIG.homework.calendarId,
-                        createAsTask: true,
-                        reminderDaysBefore: 1 
-                    }
-                );
-                console.log('✅ Homework synced to calendar successfully!');
-                console.log(`📊 Results: ${result.added} added, ${result.updated} updated`);
-            } catch (error) {
-                console.log('⚠️ Calendar sync failed:', error.message);
-            }
-        } else {
-            console.log('⚠️ Google Calendar not configured - skipping calendar sync');
-            console.log('💡 Tip: Configure CALENDAR_CONFIG.calendarCredentials');
+    },
+    homework: {
+        description: 'Sync homework to Google Calendar',
+        isConfigured: isCalendarConfigured,
+        hint: 'CALENDAR_CONFIG.calendarCredentials',
+        run: async () => {
+            const result = await syncHomeworkToCalendarNodejs(
+                UNTIS_CONFIG,
+                CALENDAR_CONFIG.calendarCredentials,
+                CALENDAR_CONFIG.homework.calendarId || 'primary',
+                CALENDAR_CONFIG.homework.syncDaysAhead,
+                { createAsTask: true, reminderDaysBefore: 1 }
+            );
+            if (!result.success) throw new Error(result.error);
+            return `${result.added} added, ${result.updated} updated`;
         }
-        
-        // 4. Send Home Assistant notification
-        console.log('\n4️⃣ Sending Home Assistant notification...');
-        if (isHomeAssistantConfigured()) {
-            try {
-                await sendHomeworkToHomeAssistant(UNTIS_CONFIG, HA_CONFIG, HA_CONFIG.daysAheadNotifications, {
-                    title: 'WebUntis Homework Update',
-                    includeDetails: true
-                });
-                console.log('✅ Home Assistant notification sent successfully!');
-            } catch (error) {
-                console.log('⚠️ Home Assistant notification failed:', error.message);
-            }
-        } else {
-            console.log('⚠️ Home Assistant not configured - skipping HA notification');
-            console.log('💡 Tip: Configure HA_CONFIG.url and HA_CONFIG.token');
+    },
+    ha: {
+        description: 'Send Home Assistant notification',
+        isConfigured: isHomeAssistantConfigured,
+        hint: 'HA_CONFIG.url and HA_CONFIG.token',
+        run: async () => {
+            const result = await sendHomeworkToHomeAssistant(UNTIS_CONFIG, HA_CONFIG, HA_CONFIG.daysAheadNotifications, {
+                title: 'WebUntis Homework Update',
+                includeDetails: true
+            });
+            if (!result.success) throw new Error(result.error);
+            return result.homeworkCount > 0 ? `sent (${result.homeworkCount} homework)` : 'no homework, not sent';
         }
-        
-        // 5. Sync timetable to Google Calendar (Node.js version)
-        console.log('\n5️⃣ Syncing timetable to Google Calendar...');
-        if (isCalendarConfigured()) {
-            try {
-                // Get timetable for configured days ahead
-                const today = new Date();
-                const endDate = new Date();
-                endDate.setDate(today.getDate() + CALENDAR_CONFIG.timetable.syncDaysAhead);
-                
-                const timetableData = await api.getTimetableData(today, endDate);
-                if (timetableData) {
-                    const lessons = api.processTimetableData(timetableData, {
-                        skipCancelled: false,
-                        includeNotes: true
-                    });
-                    
-                    if (lessons && lessons.length > 0) {
-                        const result = await syncTimetableToCalendarNodejs(
-                            lessons,
-                            CALENDAR_CONFIG.calendarCredentials,
-                            {
-                                calendarId: CALENDAR_CONFIG.timetable.calendarId,
-                                deleteOldEvents: false,
-                                eventColor: null
-                            }
-                        );
-                        console.log(`✅ Timetable sync successful! ${result.added} added, ${result.updated} updated, ${result.deleted} deleted`);
-                    } else {
-                        console.log(`📅 No timetable lessons found for the next ${CALENDAR_CONFIG.timetable.syncDaysAhead} days`);
-                    }
-                } else {
-                    console.log('📅 No timetable data available');
-                }
-            } catch (error) {
-                console.log('⚠️ Timetable sync failed:', error.message);
+    },
+    timetable: {
+        description: 'Sync timetable to Google Calendar',
+        isConfigured: isCalendarConfigured,
+        hint: 'CALENDAR_CONFIG.calendarCredentials',
+        run: async () => {
+            const api = await getWebUntisApiInstance(UNTIS_CONFIG);
+            const today = new Date();
+            const endDate = new Date();
+            endDate.setDate(today.getDate() + CALENDAR_CONFIG.timetable.syncDaysAhead);
+
+            const timetableData = await api.getTimetableData(today, endDate);
+            const lessons = api.processTimetableData(timetableData, { skipCancelled: false, includeNotes: true });
+            if (!lessons) {
+                return `no lessons in the next ${CALENDAR_CONFIG.timetable.syncDaysAhead} days`;
             }
-        } else {
-            console.log('⚠️ Google Calendar not configured - skipping timetable sync');
+
+            const result = await syncTimetableToCalendarNodejs(
+                lessons,
+                CALENDAR_CONFIG.calendarCredentials,
+                CALENDAR_CONFIG.timetable.calendarId || 'primary'
+            );
+            if (!result.success) throw new Error(result.error);
+            return `${result.added} added, ${result.updated} updated, ${result.deleted} deleted`;
         }
-        
-        // 6. Write Lehrstoff and Hausübung to the class spreadsheet
-        console.log('\n6️⃣ Syncing Lehrstoff and Hausübung to Google Sheet...');
-        if (isSheetConfigured()) {
-            try {
-                const result = await syncLessonsToSheetNodejs(UNTIS_CONFIG, SHEET_CONFIG, SHEET_CONFIG.syncDaysBack);
-                console.log(`✅ Sheet sync successful! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell, ${result.teachersWritten || 0} teacher names added`);
-            } catch (error) {
-                console.log('⚠️ Sheet sync failed:', error.message);
-            }
-        } else {
-            console.log('⚠️ Google Sheet not configured - skipping sheet sync');
-            console.log('💡 Tip: Configure SHEET_CONFIG.webAppUrl and SHEET_CONFIG.secret');
-        }
-        
-        console.log('\n🎉 Node.js automation completed successfully!');
-        console.log('💡 Tip: Set up a cron job or scheduled task to run this automatically');
-        
-        // Clean up
-        await clearWebUntisApiInstance();
-        
-    } catch (error) {
-        console.error('❌ Node.js automation failed:', error.toString());
-        await clearWebUntisApiInstance();
+    },
+    lessons: {
+        description: 'Write Lehrstoff/Hausübung to Google Sheet',
+        isConfigured: isSheetConfigured,
+        hint: 'SHEET_CONFIG.webAppUrl and SHEET_CONFIG.secret'
+    },
+    teachers: {
+        description: 'Write teacher names to Google Sheet',
+        isConfigured: isSheetConfigured,
+        hint: 'SHEET_CONFIG.webAppUrl and SHEET_CONFIG.secret'
     }
+};
+
+const ALIASES = {
+    sheet: ['lessons', 'teachers'],
+    all: Object.keys(ACTIONS)
+};
+
+/**
+ * Write Lehrstoff/Hausübung and/or teacher names to the sheet with one timetable fetch and one request
+ * @param {Object} options - { lessons, teachers }
+ * @param {number} daysBack - Number of days to look back for Lehrstoff and Hausübung
+ * @returns {Promise<string>} Summary
+ */
+async function runSheet(options, daysBack) {
+    const result = await syncLessonsToSheetNodejs(UNTIS_CONFIG, SHEET_CONFIG, daysBack, options);
+    return formatSheetResult(result, options);
 }
 
 /**
- * Simple test function to verify everything is working
+ * Run the given actions in a fixed order
+ * Explicitly requested actions that are not configured are reported as errors,
+ * with "all" they are skipped silently
+ *
+ * @param {Array<string>} actionNames - Names from ACTIONS or ALIASES
+ * @param {Object} options
+ * @param {number} options.daysBack - Days back for the sheet (default: SHEET_CONFIG.syncDaysBack or 7)
+ * @param {boolean} options.skipUnconfigured - Skip unconfigured actions without error (default: false)
+ * @returns {Promise<boolean>} true if all actions succeeded
+ */
+async function runActions(actionNames, options = {}) {
+    const daysBack = options.daysBack || SHEET_CONFIG.syncDaysBack || 7;
+    const expanded = actionNames.flatMap(name => ALIASES[name] || [name]);
+    const unknown = expanded.filter(name => !ACTIONS[name]);
+    if (unknown.length > 0) {
+        console.error(`Unknown action: ${unknown.join(', ')}`);
+        return false;
+    }
+    const selected = Object.keys(ACTIONS).filter(name => expanded.includes(name));
+    let success = true;
+
+    const runnable = selected.filter(name => {
+        if (ACTIONS[name].isConfigured()) return true;
+        if (!options.skipUnconfigured) {
+            console.error(`${name}: not configured (set ${ACTIONS[name].hint} in config.js)`);
+            success = false;
+        }
+        return false;
+    });
+
+    const sheetOptions = { lessons: runnable.includes('lessons'), teachers: runnable.includes('teachers') };
+
+    try {
+        for (const name of runnable) {
+            if (name === 'teachers' && sheetOptions.lessons) continue; // already done together with lessons
+            const label = name === 'lessons' && sheetOptions.teachers ? 'sheet' : name;
+            try {
+                const summary = (name === 'lessons' || name === 'teachers')
+                    ? await runSheet(sheetOptions, daysBack)
+                    : await ACTIONS[name].run();
+                console.log(`${label}: ${summary}`);
+            } catch (error) {
+                console.error(`${label}: failed - ${error.message}`);
+                success = false;
+            }
+        }
+    } finally {
+        await clearWebUntisApiInstance();
+    }
+    return success;
+}
+
+/**
+ * Run the actions listed in ACTIONS of config.js, or all configured actions if it is not set
+ * @param {number} daysBack - Days back for the sheet (default: SHEET_CONFIG.syncDaysBack)
+ */
+async function StartNode(daysBack) {
+    return runActions(config.ACTIONS || ALIASES.all, { daysBack, skipUnconfigured: !config.ACTIONS });
+}
+
+/**
+ * Show the configuration status and test the WebUntis login
  */
 async function testNodeSetup() {
-    console.log('🔍 Testing Node.js setup...');
-    
+    const status = (configured) => configured ? 'configured' : 'not configured';
+    console.log(`WebUntis:       ${status(isUntisConfigured())}`);
+    console.log(`Email:          ${status(isEmailConfigured())}`);
+    console.log(`Calendar:       ${status(isCalendarConfigured())}`);
+    console.log(`Home Assistant: ${status(isHomeAssistantConfigured())}`);
+    console.log(`Google Sheet:   ${status(isSheetConfigured())}`);
+
     try {
-        // Test WebUntis API
-        const api = await getWebUntisApiInstance(UNTIS_CONFIG);
-        const homework = await api.getFormattedHomework(1, true);
-        console.log('✅ WebUntis API test passed');
-        
-        // Test configuration
-        console.log('\n📋 Configuration Status:');
-        console.log(`   WebUntis: ${isUntisConfigured() ? '✅' : '❌'} Configured`);
-        console.log(`   Email: ${isEmailConfigured() ? '✅' : '❌'} Configured`);
-        console.log(`   Calendar: ${isCalendarConfigured() ? '✅' : '❌'} Configured`);
-        console.log(`   Homework Calendar: ${CALENDAR_CONFIG.homework.calendarId ? '📅 Custom' : '📅 Default'} (${CALENDAR_CONFIG.homework.syncDaysAhead} days ahead)`);
-        console.log(`   Timetable Calendar: ${CALENDAR_CONFIG.timetable.calendarId ? '📅 Custom' : '📅 Default'} (${CALENDAR_CONFIG.timetable.syncDaysAhead} days ahead)`);
-        console.log(`   Home Assistant: ${isHomeAssistantConfigured() ? '✅' : '❌'} Configured`);
-        console.log(`   Google Sheet: ${isSheetConfigured() ? '✅' : '❌'} Configured`);
-        
-        await clearWebUntisApiInstance();
-        console.log('\n🎉 Node.js setup test completed!');
-        
+        await getWebUntisApiInstance(UNTIS_CONFIG);
+        console.log('WebUntis login: ok');
+        return true;
     } catch (error) {
-        console.error('❌ Node.js setup test failed:', error.toString());
+        console.error(`WebUntis login: failed - ${error.message}`);
+        return false;
+    } finally {
         await clearWebUntisApiInstance();
     }
 }
 
 /**
- * Quick homework check function
+ * Print the open homework of the next days
  */
 async function quickHomeworkCheck() {
-    console.log('📚 Quick homework check...');
-    
     try {
         const api = await getWebUntisApiInstance(UNTIS_CONFIG);
-        const daysAhead = MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead;
-        const homework = await api.getFormattedHomework(daysAhead, true);
-        console.log(`\n📋 Homework for next ${daysAhead} days:`);
-        console.log(homework);
-        
-        await clearWebUntisApiInstance();
-        
+        console.log(await api.getFormattedHomework(MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, true));
+        return true;
     } catch (error) {
-        console.error('❌ Homework check failed:', error.toString());
+        console.error(`Homework check failed - ${error.message}`);
+        return false;
+    } finally {
         await clearWebUntisApiInstance();
     }
 }
 
 /**
- * Sync Lehrstoff and Hausübung to the class spreadsheet only
+ * Sync Lehrstoff/Hausübung and teacher names to the class spreadsheet only
  * @param {number} daysBack - Number of days to look back (default: SHEET_CONFIG.syncDaysBack)
  */
-async function syncSheet(daysBack = SHEET_CONFIG.syncDaysBack || 7) {
-    console.log(`📝 Syncing Lehrstoff and Hausübung of the last ${daysBack} days to Google Sheet...`);
-    
-    if (!isSheetConfigured()) {
-        console.error('❌ Google Sheet not configured - set SHEET_CONFIG.webAppUrl and SHEET_CONFIG.secret in config.js');
-        return;
+async function syncSheet(daysBack) {
+    return runActions(ALIASES.sheet, { daysBack });
+}
+
+function printUsage() {
+    console.log('Usage: node StartNode.js [action ...] [--days N]');
+    console.log('');
+    console.log('Actions:');
+    Object.entries(ACTIONS).forEach(([name, action]) => console.log(`  ${name.padEnd(10)} ${action.description}`));
+    console.log('  sheet      Same as: lessons teachers');
+    console.log('  all        All configured actions');
+    console.log('  test       Show configuration status and test the WebUntis login');
+    console.log('  quick      Print open homework');
+    console.log('');
+    console.log('Without action, ACTIONS from config.js (or all configured actions) are run.');
+    console.log('--days N     Days back for lessons (default: SHEET_CONFIG.syncDaysBack)');
+}
+
+/**
+ * Parse the command line, e.g. ['lessons', 'teachers', '--days', '30']
+ * A bare number is also accepted as days (e.g. "sheet 30")
+ * @param {Array<string>} args - Command line arguments
+ * @returns {Object} { command, actions, daysBack } or { error }
+ */
+function parseArgs(args) {
+    const actions = [];
+    let daysBack;
+    let command = null;
+
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i].toLowerCase();
+        if (arg === '--days' || arg === '-d') {
+            daysBack = parseInt(args[++i], 10);
+        } else if (/^\d+$/.test(arg)) {
+            daysBack = parseInt(arg, 10);
+        } else if (['test', 'quick', 'help', '--help', '-h'].includes(arg)) {
+            command = arg.replace(/^-+/, '');
+        } else if (arg === 'start') {
+            command = 'start';
+        } else if (ALIASES[arg]) {
+            actions.push(...ALIASES[arg]);
+        } else if (ACTIONS[arg]) {
+            actions.push(arg);
+        } else {
+            return { error: `Unknown action: ${args[i]}` };
+        }
     }
-    
-    try {
-        const result = await syncLessonsToSheetNodejs(UNTIS_CONFIG, SHEET_CONFIG, daysBack);
-        console.log(`✅ Sheet sync successful! ${result.written} written, ${result.unchanged} unchanged, ${result.skipped} skipped, ${result.unmatched} without matching cell, ${result.teachersWritten || 0} teacher names added`);
-    } catch (error) {
-        console.error('❌ Sheet sync failed:', error.toString());
+
+    if (daysBack !== undefined && !(daysBack > 0)) {
+        return { error: '--days needs a positive number' };
     }
-    await clearWebUntisApiInstance();
+    return { command, actions, daysBack, all: args.some(a => a.toLowerCase() === 'all') };
 }
 
 // ==========================================
@@ -274,6 +323,7 @@ async function syncSheet(daysBack = SHEET_CONFIG.syncDaysBack || 7) {
 // Export functions for use as module
 module.exports = {
     StartNode,
+    runActions,
     testNodeSetup,
     quickHomeworkCheck,
     syncSheet,
@@ -286,29 +336,26 @@ module.exports = {
 
 // Auto-run if called directly
 if (require.main === module) {
-    console.log('🚀 WebUntis Node.js Automation Starter');
-    console.log('📝 Available commands:');
-    console.log('   node StartNode.js test     - Test setup');
-    console.log('   node StartNode.js quick    - Quick homework check');
-    console.log('   node StartNode.js sheet [days] - Sync Lehrstoff/HÜ to Google Sheet');
-    console.log('   node StartNode.js start    - Run full automation');
-    console.log('');
-    
-    const command = process.argv[2] || 'start';
-    
-    switch (command.toLowerCase()) {
-        case 'test':
-            testNodeSetup();
-            break;
-        case 'quick':
-            quickHomeworkCheck();
-            break;
-        case 'sheet':
-            syncSheet(process.argv[3] ? parseInt(process.argv[3], 10) : undefined);
-            break;
-        case 'start':
-        default:
-            StartNode();
-            break;
+    const parsed = parseArgs(process.argv.slice(2));
+
+    let run;
+    if (parsed.error) {
+        console.error(parsed.error);
+        printUsage();
+        process.exitCode = 1;
+    } else if (parsed.command === 'help' || parsed.command === 'h') {
+        printUsage();
+    } else if (parsed.command === 'test') {
+        run = testNodeSetup();
+    } else if (parsed.command === 'quick') {
+        run = quickHomeworkCheck();
+    } else if (parsed.actions.length > 0) {
+        run = runActions(parsed.actions, { daysBack: parsed.daysBack, skipUnconfigured: parsed.all });
+    } else {
+        run = StartNode(parsed.daysBack);
+    }
+
+    if (run) {
+        run.then(success => { if (!success) process.exitCode = 1; });
     }
 }

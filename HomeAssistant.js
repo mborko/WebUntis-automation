@@ -34,15 +34,16 @@ async function sendHomeworkToHomeAssistant(config, haConfig, days = 3, options =
     }
 
     try {
-        // Get API instance using the global function from WebUntis.js
-        const api = await getWebUntisApiInstance(config);
+        // Apps Script shares one global scope, Node.js needs the import
+        const untis = typeof require !== 'undefined' ? require('./WebUntis.js') : { getWebUntisApiInstance, WebUntisAPI };
+        const api = await untis.getWebUntisApiInstance(config);
         const homeworkList = await api.getHomeworkList(days, true); // Next n days, open only
         
         // Filter out homework due today
         let filteredHomeworkList = null;
         if (homeworkList) {
             const today = new Date();
-            const todayStr = parseInt(WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
+            const todayStr = parseInt(untis.WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
             
             filteredHomeworkList = homeworkList.filter(hw => hw.dueDate !== todayStr);
         }
@@ -82,8 +83,6 @@ async function sendHomeworkToHomeAssistant(config, haConfig, days = 3, options =
             const result = await callHomeAssistantAPI(haConfig, service, notificationData);
             
             if (result.success) {
-                console.log(`📱 Home Assistant notification sent successfully!`);
-                console.log(`📚 Found ${filteredHomeworkList.length} homework assignments (filtered out today's homework)`);
                 return {
                     success: true,
                     homeworkCount: filteredHomeworkList.length,
@@ -91,14 +90,12 @@ async function sendHomeworkToHomeAssistant(config, haConfig, days = 3, options =
                     data: result.data
                 };
             } else {
-                console.error('❌ Failed to send Home Assistant notification:', result.error);
                 return {
                     success: false,
                     error: result.error
                 };
             }
         } else {
-            console.log(`😎 No homework found for the next ${days} days (excluding today) - notification not sent`);
             return {
                 success: true,
                 homeworkCount: 0,
@@ -107,7 +104,6 @@ async function sendHomeworkToHomeAssistant(config, haConfig, days = 3, options =
         }
         
     } catch (error) {
-        console.error('❌ Error sending homework to Home Assistant:', error.toString());
         return {
             success: false,
             error: error.toString()
@@ -184,7 +180,6 @@ async function callHomeAssistantAPI(haConfig, service, serviceData) {
         
         if (response.ok) {
             const responseData = await response.json();
-            console.log(`✅ Home Assistant API call successful: ${service}`);
             return {
                 success: true,
                 data: responseData,
@@ -192,7 +187,7 @@ async function callHomeAssistantAPI(haConfig, service, serviceData) {
             };
         } else {
             const errorText = await response.text();
-            console.error(`❌ Home Assistant API call failed: ${response.status} - ${errorText}`);
+            console.error(`Home Assistant API call failed: ${response.status} - ${errorText}`);
             return {
                 success: false,
                 error: `HTTP ${response.status}: ${errorText}`,
@@ -201,7 +196,7 @@ async function callHomeAssistantAPI(haConfig, service, serviceData) {
         }
         
     } catch (error) {
-        console.error('❌ Error calling Home Assistant API:', error.toString());
+        console.error('Error calling Home Assistant API:', error.toString());
         return {
             success: false,
             error: error.toString()
@@ -257,7 +252,7 @@ async function createHomeworkSensorData(config, haConfig, days = 7) {
             }
         };
         
-        console.log(`📊 Created sensor data: ${sensorData.state} homework assignments`);
+        console.log(`Created sensor data: ${sensorData.state} homework assignments`);
         return {
             success: true,
             sensorData: sensorData,
@@ -265,7 +260,7 @@ async function createHomeworkSensorData(config, haConfig, days = 7) {
         };
         
     } catch (error) {
-        console.error('❌ Error creating homework sensor data:', error.toString());
+        console.error('Error creating homework sensor data:', error.toString());
         return {
             success: false,
             error: error.toString(),
@@ -348,7 +343,7 @@ async function updateHomeworkSensor(config, haConfig, entityId, days = 7) {
         }
         
         if (response.ok) {
-            console.log(`✅ Home Assistant sensor updated: ${entityId} = ${sensorResult.sensorData.state}`);
+            console.log(`Home Assistant sensor updated: ${entityId} = ${sensorResult.sensorData.state}`);
             return {
                 success: true,
                 entityId: entityId,
@@ -357,7 +352,7 @@ async function updateHomeworkSensor(config, haConfig, entityId, days = 7) {
             };
         } else {
             const errorText = await response.text();
-            console.error(`❌ Failed to update Home Assistant sensor: ${response.status} - ${errorText}`);
+            console.error(`Failed to update Home Assistant sensor: ${response.status} - ${errorText}`);
             return {
                 success: false,
                 error: `HTTP ${response.status}: ${errorText}`,
@@ -366,7 +361,7 @@ async function updateHomeworkSensor(config, haConfig, entityId, days = 7) {
         }
         
     } catch (error) {
-        console.error('❌ Error updating Home Assistant sensor:', error.toString());
+        console.error('Error updating Home Assistant sensor:', error.toString());
         return {
             success: false,
             error: error.toString()

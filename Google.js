@@ -79,16 +79,16 @@ async function sendHomeworkEmail(config, emailAddress, days = 3, emailPrefix = n
                     from: Session.getActiveUser().getEmail()
                 }
             );
-            console.log(`📧 Homework email sent successfully to ${emailAddress}!`);
-            console.log(`📚 Found ${filteredHomeworkList.length} homework assignments (filtered out today's homework)`);
+            console.log(`Homework email sent successfully to ${emailAddress}!`);
+            console.log(`Found ${filteredHomeworkList.length} homework assignments (filtered out today's homework)`);
         } else {
-            console.log(`😎 No homework found for the next ${days} days (excluding today) - email not sent`);
+            console.log(`No homework found for the next ${days} days (excluding today) - email not sent`);
         }
         
         // Note: We don't logout here as we're reusing the session
         
     } catch (error) {
-        console.error('❌ Error sending homework email:', error.toString());
+        console.error('Error sending homework email:', error.toString());
         throw error;
     }
 }
@@ -116,50 +116,43 @@ async function sendHomeworkEmailNodejs(config, emailAddress, days = 3, emailPref
         throw new Error('Email configuration is required for Node.js version');
     }
 
-    try {
-        const api = await getWebUntisApiInstance(config);
-        const homeworkList = await api.getHomeworkList(days, true);
+    const { getWebUntisApiInstance, WebUntisAPI } = require('./WebUntis.js');
+    const api = await getWebUntisApiInstance(config);
+    const homeworkList = await api.getHomeworkList(days, true);
+    
+    // Filter out homework due today
+    let filteredHomeworkList = null;
+    if (homeworkList) {
+        const today = new Date();
+        const todayStr = parseInt(WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
         
-        // Filter out homework due today
-        let filteredHomeworkList = null;
-        if (homeworkList) {
-            const today = new Date();
-            const todayStr = parseInt(WebUntisAPI.formatDate(today)); // Convert to YYYYMMDD format
-            
-            filteredHomeworkList = homeworkList.filter(hw => hw.dueDate !== todayStr);
-        }
-        
-        if (filteredHomeworkList && filteredHomeworkList.length > 0) {
-            const homework = api.formatHomework(filteredHomeworkList, days, true);
-            const htmlContent = convertToHtmlEmail(homework);
-            
-            let emailTitle = 'Upcoming Homework Reminder';
-            if (emailPrefix) {
-                emailTitle = `${emailPrefix} ${emailTitle}`;
-            }
-            
-            // For Node.js - requires nodemailer setup
-            const nodemailer = require('nodemailer');
-            const transporter = nodemailer.createTransporter(emailConfig);
-            
-            await transporter.sendMail({
-                from: emailConfig.from,
-                to: emailAddress,
-                subject: emailTitle,
-                text: homework,
-                html: htmlContent
-            });
-            
-            console.log(`📧 Homework email sent successfully to ${emailAddress}!`);
-            console.log(`📚 Found ${filteredHomeworkList.length} homework assignments (filtered out today's homework)`);
-        } else {
-            console.log(`😎 No homework found for the next ${days} days (excluding today) - email not sent`);
-        }
-        
-    } catch (error) {
-        console.error('❌ Error sending homework email:', error.toString());
-        throw error;
+        filteredHomeworkList = homeworkList.filter(hw => hw.dueDate !== todayStr);
     }
+    
+    if (filteredHomeworkList && filteredHomeworkList.length > 0) {
+        const homework = api.formatHomework(filteredHomeworkList, days, true);
+        const htmlContent = convertToHtmlEmail(homework);
+        
+        let emailTitle = 'Upcoming Homework Reminder';
+        if (emailPrefix) {
+            emailTitle = `${emailPrefix} ${emailTitle}`;
+        }
+        
+        // For Node.js - requires nodemailer setup
+        const nodemailer = require('nodemailer');
+        const transporter = nodemailer.createTransport(emailConfig);
+        
+        await transporter.sendMail({
+            from: emailConfig.from,
+            to: emailAddress,
+            subject: emailTitle,
+            text: homework,
+            html: htmlContent
+        });
+        
+        return { sent: true, homeworkCount: filteredHomeworkList.length };
+    }
+    return { sent: false, homeworkCount: 0 };
 }
 
 /**
@@ -367,23 +360,23 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
         if (!calendarId) {
             // Use default calendar
             calendar = CalendarApp.getDefaultCalendar();
-            console.log('📅 Using default calendar');
+            console.log('Using default calendar');
         } else if (calendarId.includes('@')) {
             // Calendar ID provided (email format)
             try {
                 calendar = CalendarApp.getCalendarById(calendarId);
                 if (calendar) {
-                    console.log(`📅 Using calendar by ID: ${calendarId}`);
+                    console.log(`Using calendar by ID: ${calendarId}`);
                 }
             } catch (error) {
-                console.warn(`⚠️ Calendar ID ${calendarId} not found or no access`);
+                console.warn(`Calendar ID ${calendarId} not found or no access`);
             }
         } else {
             // Calendar name provided - search for it
             const calendars = CalendarApp.getAllCalendars();
             calendar = calendars.find(cal => cal.getName() === calendarId);
             if (calendar) {
-                console.log(`📅 Found calendar by name: ${calendarId}`);
+                console.log(`Found calendar by name: ${calendarId}`);
             }
         }
         
@@ -395,19 +388,19 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                         ? calendarId 
                         : opts.calendarName;
                     calendar = CalendarApp.createCalendar(calendarName);
-                    console.log(`✅ Created new calendar: ${calendarName}`);
+                    console.log(`Created new calendar: ${calendarName}`);
                 } catch (error) {
-                    console.warn('⚠️ Could not create calendar, using default');
+                    console.warn('Could not create calendar, using default');
                     calendar = CalendarApp.getDefaultCalendar();
                 }
             } else {
-                console.warn('⚠️ Specified calendar not found, using default');
+                console.warn('Specified calendar not found, using default');
                 calendar = CalendarApp.getDefaultCalendar();
             }
         }
         
         if (!calendar) {
-            console.error('❌ No calendar available');
+            console.error('No calendar available');
             return;
         }
         
@@ -427,7 +420,7 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 if (reminderDate < today) {
-                    console.log(`⏰ Skipping past reminder date for homework due ${dueDate}`);
+                    console.log(`Skipping past reminder date for homework due ${dueDate}`);
                     return;
                 }
                 
@@ -466,13 +459,13 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                         // Create as all-day event (task-like)
                         const task = calendar.createAllDayEvent(taskTitle, reminderDate, eventOptions);
                         const reminderDateFormatted = api.formatWebUntisDate(parseInt(WebUntisAPI.formatDate(reminderDate)));
-                        console.log(`✅ Added task: ${taskTitle} on ${reminderDateFormatted}`);
+                        console.log(`Added task: ${taskTitle} on ${reminderDateFormatted}`);
                         addedCount++;
                     } else {
                         // Update existing task if description changed
                         if (!existingTask.getDescription().includes(taskNotes)) {
                             existingTask.setDescription(taskNotes);
-                            console.log(`🔄 Updated task: ${taskTitle}`);
+                            console.log(`Updated task: ${taskTitle}`);
                             updatedCount++;
                         }
                     }
@@ -500,13 +493,13 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                         }
                         
                         const event = calendar.createEvent(title, dueDateObj, dueDateObj, eventOptions);
-                        console.log(`📅 Added to calendar: ${title} on ${dueDate}`);
+                        console.log(`Added to calendar: ${title} on ${dueDate}`);
                         addedCount++;
                     } else {
                         // Update existing event if description changed
                         if (!existingEvent.getDescription().includes(description)) {
                             existingEvent.setDescription(description);
-                            console.log(`🔄 Updated calendar event: ${title}`);
+                            console.log(`Updated calendar event: ${title}`);
                             updatedCount++;
                         }
                     }
@@ -514,8 +507,8 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
             }
         });
         
-        console.log(`✅ Calendar sync complete: ${addedCount} added, ${updatedCount} updated`);
-        console.log(`📅 Calendar used: ${calendar.getName()}`);
+        console.log(`Calendar sync complete: ${addedCount} added, ${updatedCount} updated`);
+        console.log(`Calendar used: ${calendar.getName()}`);
         // Note: We don't logout here as we're reusing the session
         
         return {
@@ -527,7 +520,7 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
         };
         
     } catch (error) {
-        console.error('❌ Error adding homework to calendar:', error.toString());
+        console.error('Error adding homework to calendar:', error.toString());
         return {
             success: false,
             error: error.toString()
@@ -554,6 +547,7 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
     };
 
     try {
+        const { getWebUntisApiInstance, WebUntisAPI } = require('./WebUntis.js');
         const api = await getWebUntisApiInstance(config);
         const homeworkData = await api.getHomework(
             WebUntisAPI.formatDate(new Date()),
@@ -600,10 +594,9 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
                         calendarId: calendarId,
                         resource: eventData
                     });
-                    console.log(`✅ Added task: ${eventData.summary}`);
                     addedCount++;
                 } catch (error) {
-                    console.error(`❌ Error adding homework event: ${error.toString()}`);
+                    console.error(`Error adding homework event ${eventData.summary}: ${error.toString()}`);
                 }
             }
         }
@@ -615,7 +608,6 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
         };
 
     } catch (error) {
-        console.error('❌ Error adding homework to calendar:', error.toString());
         return {
             success: false,
             error: error.toString()
@@ -640,7 +632,7 @@ function listAvailableCalendars(showDetails = false) {
         const calendars = CalendarApp.getAllCalendars();
         const calendarList = [];
         
-        console.log('📅 Available Calendars:');
+        console.log('Available Calendars:');
         console.log('========================');
         
         calendars.forEach((calendar, index) => {
@@ -673,7 +665,7 @@ function listAvailableCalendars(showDetails = false) {
         console.log(`Total calendars found: ${calendars.length}`);
         return calendarList;
     } catch (error) {
-        console.error('❌ Error listing calendars:', error.toString());
+        console.error('Error listing calendars:', error.toString());
         return [];
     }
 }
@@ -694,7 +686,7 @@ async function listAvailableCalendarsNodejs(auth, showDetails = false) {
         const response = await calendar.calendarList.list();
         const calendars = response.data.items || [];
         
-        console.log('📅 Available Calendars:');
+        console.log('Available Calendars:');
         console.log('========================');
         
         const calendarList = [];
@@ -729,7 +721,7 @@ async function listAvailableCalendarsNodejs(auth, showDetails = false) {
         console.log(`Total calendars found: ${calendars.length}`);
         return calendarList;
     } catch (error) {
-        console.error('❌ Error listing calendars:', error.toString());
+        console.error('Error listing calendars:', error.toString());
         return [];
     }
 }
@@ -747,7 +739,7 @@ async function listAvailableCalendarsNodejs(auth, showDetails = false) {
  */
 async function syncTimetableToCalendarWorkflow(config, calendarId = null, days = 7, options = {}) {
     try {
-        console.log('📅 Syncing timetable to calendar...');
+        console.log('Syncing timetable to calendar...');
         
         const api = await getWebUntisApiInstance(config);
         const today = new Date();
@@ -768,22 +760,22 @@ async function syncTimetableToCalendarWorkflow(config, calendarId = null, days =
             if (lessons && lessons.length > 0) {
                 const result = syncTimetableToCalendar(lessons, calendarId, options);
                 if (result.success) {
-                    console.log(`✅ Timetable sync successful! ${result.added} added, ${result.updated} updated`);
+                    console.log(`Timetable sync successful! ${result.added} added, ${result.updated} updated`);
                     return result;
                 } else {
-                    console.log('⚠️ Timetable sync failed:', result.error);
+                    console.log('Timetable sync failed:', result.error);
                     return result;
                 }
             } else {
-                console.log(`📅 No timetable lessons found for the next ${days} days`);
+                console.log(`No timetable lessons found for the next ${days} days`);
                 return { success: true, message: 'No lessons found', added: 0, updated: 0 };
             }
         } else {
-            console.log('📅 No timetable data available');
+            console.log('No timetable data available');
             return { success: true, message: 'No timetable data', added: 0, updated: 0 };
         }
     } catch (error) {
-        console.error('⚠️ Timetable sync error:', error.toString());
+        console.error('Timetable sync error:', error.toString());
         return { success: false, error: error.toString() };
     }
 }
@@ -810,7 +802,7 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
     try {
         // Handle null/empty lessons
         if (!lessons || !Array.isArray(lessons) || lessons.length === 0) {
-            console.log('📅 No lessons to sync');
+            console.log('No lessons to sync');
             return { 
                 success: true, 
                 message: 'No lessons found',
@@ -821,28 +813,28 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
             };
         }
 
-        console.log(`📅 Syncing ${lessons.length} lessons to calendar...`);
+        console.log(`Syncing ${lessons.length} lessons to calendar...`);
 
         // Get or create calendar (Google Apps Script specific)
         let calendar = null;
         
         if (!calendarId) {
             calendar = CalendarApp.getDefaultCalendar();
-            console.log('📅 Using default calendar');
+            console.log('Using default calendar');
         } else if (calendarId.includes('@')) {
             try {
                 calendar = CalendarApp.getCalendarById(calendarId);
                 if (calendar) {
-                    console.log(`📅 Using calendar by ID: ${calendarId}`);
+                    console.log(`Using calendar by ID: ${calendarId}`);
                 }
             } catch (error) {
-                console.warn(`⚠️ Calendar ID ${calendarId} not found or no access`);
+                console.warn(`Calendar ID ${calendarId} not found or no access`);
             }
         } else {
             const calendars = CalendarApp.getAllCalendars();
             calendar = calendars.find(cal => cal.getName() === calendarId);
             if (calendar) {
-                console.log(`📅 Found calendar by name: ${calendarId}`);
+                console.log(`Found calendar by name: ${calendarId}`);
             }
         }
         
@@ -853,13 +845,13 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
                         ? calendarId 
                         : opts.calendarName;
                     calendar = CalendarApp.createCalendar(calendarName);
-                    console.log(`✅ Created new calendar: ${calendarName}`);
+                    console.log(`Created new calendar: ${calendarName}`);
                 } catch (error) {
-                    console.warn('⚠️ Could not create calendar, using default');
+                    console.warn('Could not create calendar, using default');
                     calendar = CalendarApp.getDefaultCalendar();
                 }
             } else {
-                console.warn('⚠️ Specified calendar not found, using default');
+                console.warn('Specified calendar not found, using default');
                 calendar = CalendarApp.getDefaultCalendar();
             }
         }
@@ -876,7 +868,7 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
         // Process each lesson
         lessons.forEach((lesson, index) => {
             try {
-                console.log(`📚 Processing lesson ${index + 1}/${lessons.length}: ${lesson.subject}`);
+                console.log(`Processing lesson ${index + 1}/${lessons.length}: ${lesson.subject}`);
 
                 // Check if event already exists
                 const existingEvents = calendar.getEventsForDay(lesson.startTime);
@@ -892,10 +884,10 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
                 if (lesson.isCancelled) {
                     if (existingEvent) {
                         existingEvent.deleteEvent();
-                        console.log(`🗑️ Deleted cancelled lesson: ${lesson.subject} at ${lesson.startTime.toLocaleTimeString()}`);
+                        console.log(`Deleted cancelled lesson: ${lesson.subject} at ${lesson.startTime.toLocaleTimeString()}`);
                         deletedCount++;
                     } else {
-                        console.log(`⏭️ Skipped cancelled lesson (no existing event): ${lesson.subject}`);
+                        console.log(`Skipped cancelled lesson (no existing event): ${lesson.subject}`);
                         skippedCount++;
                     }
                     return;
@@ -937,7 +929,7 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
                     existingEvent.setTitle(eventTitle);
                     existingEvent.setDescription(description);
                     existingEvent.setTime(lesson.startTime, lesson.endTime);
-                    console.log(`🔄 Updated: ${eventTitle} at ${lesson.startTime.toLocaleTimeString()}`);
+                    console.log(`Updated: ${eventTitle} at ${lesson.startTime.toLocaleTimeString()}`);
                     updatedCount++;
                 } else if (!existingEvent) {
                     const eventOptions = { description: description };
@@ -951,15 +943,15 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
                     }
 
                     calendar.createEvent(eventTitle, lesson.startTime, lesson.endTime, eventOptions);
-                    console.log(`✅ Added: ${eventTitle} at ${lesson.startTime.toLocaleTimeString()}`);
+                    console.log(`Added: ${eventTitle} at ${lesson.startTime.toLocaleTimeString()}`);
                     addedCount++;
                 } else {
-                    console.log(`⏭️ Skipped (exists): ${eventTitle}`);
+                    console.log(`Skipped (exists): ${eventTitle}`);
                     skippedCount++;
                 }
 
             } catch (error) {
-                console.error(`❌ Error processing lesson: ${error.toString()}`);
+                console.error(`Error processing lesson: ${error.toString()}`);
                 skippedCount++;
             }
         });
@@ -975,17 +967,17 @@ function syncTimetableToCalendar(lessons, calendarId = null, options = {}) {
             totalProcessed: addedCount + updatedCount + deletedCount + skippedCount
         };
 
-        console.log(`✅ Timetable sync complete:`);
-        console.log(`   📅 Calendar: ${result.calendar}`);
-        console.log(`   ➕ Added: ${result.added}`);
-        console.log(`   🔄 Updated: ${result.updated}`);
-        console.log(`   🗑️ Deleted: ${result.deleted}`);
-        console.log(`   ⏭️ Skipped: ${result.skipped}`);
+        console.log(`Timetable sync complete:`);
+        console.log(`   Calendar: ${result.calendar}`);
+        console.log(`   Added: ${result.added}`);
+        console.log(`   Updated: ${result.updated}`);
+        console.log(`   Deleted: ${result.deleted}`);
+        console.log(`   Skipped: ${result.skipped}`);
 
         return result;
 
     } catch (error) {
-        console.error('❌ Error syncing timetable to calendar:', error.toString());
+        console.error('Error syncing timetable to calendar:', error.toString());
         return {
             success: false,
             error: error.toString(),
@@ -1016,7 +1008,6 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
 
     try {
         if (!lessons || !Array.isArray(lessons) || lessons.length === 0) {
-            console.log('📅 No lessons to sync');
             return { 
                 success: true, 
                 message: 'No lessons found',
@@ -1029,8 +1020,6 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
 
         const { google } = require('googleapis');
         const calendar = google.calendar({ version: 'v3', auth });
-
-        console.log(`📅 Syncing ${lessons.length} lessons to calendar...`);
 
         let addedCount = 0;
         let updatedCount = 0;
@@ -1079,10 +1068,8 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
                             calendarId: calendarId,
                             eventId: existingEvent.id
                         });
-                        console.log(`🗑️ Deleted cancelled lesson: ${lesson.subject}`);
                         deletedCount++;
                     } else {
-                        console.log(`⏭️ Skipped cancelled lesson (no existing event): ${lesson.subject}`);
                         skippedCount++;
                     }
                     continue;
@@ -1094,22 +1081,19 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
                         eventId: existingEvent.id,
                         resource: eventData
                     });
-                    console.log(`🔄 Updated: ${eventData.summary}`);
                     updatedCount++;
                 } else if (!existingEvent) {
                     await calendar.events.insert({
                         calendarId: calendarId,
                         resource: eventData
                     });
-                    console.log(`✅ Added: ${eventData.summary}`);
                     addedCount++;
                 } else {
-                    console.log(`⏭️ Skipped (exists): ${eventData.summary}`);
                     skippedCount++;
                 }
 
             } catch (error) {
-                console.error(`❌ Error processing lesson: ${error.toString()}`);
+                console.error(`Error syncing lesson ${lesson.subject} on ${lesson.date}: ${error.toString()}`);
                 skippedCount++;
             }
         }
@@ -1123,16 +1107,9 @@ async function syncTimetableToCalendarNodejs(lessons, auth, calendarId = 'primar
             totalProcessed: addedCount + updatedCount + deletedCount + skippedCount
         };
 
-        console.log(`✅ Timetable sync complete:`);
-        console.log(`   ➕ Added: ${result.added}`);
-        console.log(`   🔄 Updated: ${result.updated}`);
-        console.log(`   🗑️ Deleted: ${result.deleted}`);
-        console.log(`   ⏭️ Skipped: ${result.skipped}`);
-
         return result;
 
     } catch (error) {
-        console.error('❌ Error syncing timetable to calendar:', error.toString());
         return {
             success: false,
             error: error.toString(),

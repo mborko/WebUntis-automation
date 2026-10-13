@@ -79,9 +79,14 @@ const SHEET_CONFIG = {
     syncDaysBack: 7,                               // How many days back to sync Lehrstoff and Hausübung
 };
 
+// Actions run by "node StartNode.js" / "npm start" without arguments (Node.js only)
+// email, homework, ha, timetable, lessons, teachers - or 'sheet' for lessons + teachers, e.g. ['lessons', 'teachers']
+// null runs all configured actions; arguments override it, e.g. "node StartNode.js lessons"
+const ACTIONS = null;
+
 // Export for Node.js
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG };
+    module.exports = { UNTIS_CONFIG, HA_CONFIG, CALENDAR_CONFIG, MAIL_NOTIFICATION_CONFIG, SHEET_CONFIG, ACTIONS };
 }
 
 /**

@@ -117,11 +117,23 @@ await sendHomeworkToHomeAssistant(MY_CONFIG, HA_CONFIG, 3);
 2. Copy `config.template.js` to `config.js` and add your credentials
 3. Run: `node StartNode.js`
 
-Available commands:
-- `npm start` - Run full automation
-- `npm test` - Test configuration
-- `npm run quick` - Quick homework check
-- `npm run sheet` - Sync Lehrstoff and Hausübung to the Google Sheet (`node StartNode.js sheet 30` for the last 30 days)
+Run single actions with `node StartNode.js <action ...> [--days N]`:
+- `email` - Send homework email
+- `homework` - Sync homework to Google Calendar
+- `ha` - Send Home Assistant notification
+- `timetable` - Sync timetable to Google Calendar
+- `lessons` - Write Lehrstoff and Hausübung to the Google Sheet (`--days 30` for the last 30 days)
+- `teachers` - Write the teacher names to the Google Sheet
+- `sheet` - Same as `lessons teachers`
+- `all` - All configured actions
+
+Example: `node StartNode.js lessons teachers --days 14`. Without action, the actions listed in `ACTIONS` in `config.js` are run (all configured ones if it is not set).
+
+Shortcuts:
+- `npm start` - Run the default actions
+- `npm test` - Show configuration status and test the WebUntis login
+- `npm run quick` - Print open homework
+- `npm run sheet` - Same as `node StartNode.js sheet`
 
 ## License
 
