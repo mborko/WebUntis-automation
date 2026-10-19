@@ -51,23 +51,30 @@ Your Google Apps Script Project/
 
 ### Step 3: Configure Your Credentials
 
-Update the configuration objects in `Code.gs`:
+Update the non-secret settings in the configuration objects in `Code.gs` (school, server, resource ID, email, calendar IDs, ...).
+
+Secrets are **not** written into `Code.gs`. Add them in the Apps Script editor under **Project Settings → Script Properties** (Add script property):
+
+| Script property | Value |
+|---|---|
+| `WEBUNTIS_USERNAME` | Your WebUntis username |
+| `WEBUNTIS_PASSWORD` | Your WebUntis password |
+| `HA_TOKEN` | Home Assistant long-lived access token (only for the Home Assistant test) |
+| `SHEET_SECRET` | Same value as `SHEET_WEB_APP_SECRET` in the sheet web app (Step 3b) |
+| `SMS_GATEWAY_USERNAME` / `SMS_GATEWAY_PASSWORD` | Credentials of SMS Gateway for Android (optional, `sendSms()` is skipped without them) |
+| `SMS_PHONE_NUMBERS` | Recipients, comma-separated, e.g. `+43664...` (optional) |
+
+Missing properties are read as empty values, so the script loads without them but the matching action fails.
+
+Example of the non-secret part of `Code.gs`:
 
 ```javascript
 const UNTIS_CONFIG = {
     school: 'your-school-name',           // Your school identifier
-    username: 'your-username',           // Your WebUntis username  
-    password: 'your-password',           // Your WebUntis password
+    username: getScriptProperty('WEBUNTIS_USERNAME'),
+    password: getScriptProperty('WEBUNTIS_PASSWORD'),
     server: 'your-webuntis-server',      // Your server (change if different)
     resourceId: 'your-student-resource-id' // Your student resource ID (found in timetable URL)
-};
-
-const MAIL_NOTIFICATION_CONFIG = {
-    enabled: true,
-    email: 'your-email@gmail.com',
-    homeworkDaysAhead: 3,
-    titlePrefix: null,           // Optional prefix for email subject (e.g., "📚 School:", "Student Name:")
-    emailConfig: null            // Not needed for Google Apps Script
 };
 
 const CALENDAR_CONFIG = {
@@ -81,11 +88,8 @@ const CALENDAR_CONFIG = {
     },
 };
 ```
-    password: 'your-password',           // Your WebUntis password
-    server: 'your-server.webuntis.com',  // Your WebUntis server
-    resourceId: 12345                    // Your student resource ID
-};
-```
+
+`runDaily()` runs the email, calendar, sheet and SMS steps. Run `quickTest()` first to check the WebUntis login.
 
 ### Step 3b: Spreadsheet Sync (Lehrstoff and Hausübung, optional)
 

@@ -6,25 +6,32 @@
  * Instructions:
  * 1. Copy WebUntis.js, Google.js and Sheets.js content to a new Google Apps Script project
  *    (SheetWebApp.js goes into a separate script bound to the class spreadsheet)
- * 2. Update the config objects below with your credentials
- * 3. Run runDaily() for complete automation (email + calendar sync + sheet sync)
+ * 2. Update the config objects below. Secrets (passwords, tokens, phone numbers) are NOT in this file:
+ *    add them under Project Settings → Script Properties with the names used in getScriptProperty() below
+ * 3. Run runDaily() for complete automation (email + calendar sync + sheet sync + SMS)
  *    OR run individual functions like quickTest() for testing
- * 
+ *
  * Main Functions:
  * - runDaily() - Complete daily automation workflow
  * - sendNotifications() - Email homework reminders
  * - syncHomework() - Sync homework to calendar
  * - syncTimetable() - Sync timetable to calendar
  * - syncSheet() - Write Lehrstoff and Hausübung to the class spreadsheet
+ * - sendSms() - Open homework as SMS via own Android phone (skipped if SMS_CONFIG is not set)
  * - backfillSheet() - Same as syncSheet() for the whole school year
  * - quickTest() - Test WebUntis API connection
  */
 
+// Script property (Project Settings → Script Properties) or empty string if not set
+function getScriptProperty(name) {
+    return PropertiesService.getScriptProperties().getProperty(name) || '';
+}
+
 // WebUntis Configuration
 const UNTIS_CONFIG = {
     school: '<YOUR_SCHOOL_NAME>',           // Your school identifier from WebUntis URL
-    username: '<YOUR_USERNAME>',            // Your WebUntis username
-    password: '<YOUR_PASSWORD>',            // Your WebUntis password
+    username: getScriptProperty('WEBUNTIS_USERNAME'), // Script property WEBUNTIS_USERNAME
+    password: getScriptProperty('WEBUNTIS_PASSWORD'), // Script property WEBUNTIS_PASSWORD
     server: '<YOUR_WEBUNTIS_SERVER>',       // Usually something like 'demo.webuntis.com' or 'your-school.webuntis.com'
     resourceId: '<YOUR_STUDENT_RESOURCE_ID>' // Your student resource ID (found in timetable URL, usually a number)
 };
@@ -32,7 +39,7 @@ const UNTIS_CONFIG = {
 
 const HA_CONFIG = {
     url: '<YOUR_HOME_ASSISTANT_URL>',              // Replace with your Home Assistant URL
-    token: '<YOUR_HA_ACCESS_TOKEN>',              // Replace with your long-lived access token
+    token: getScriptProperty('HA_TOKEN'),          // Script property HA_TOKEN (long-lived access token)
     service: 'notify.signal_me',                   // Replace with your notification service
     daysAheadNotifications: 3,                     // How many days ahead to check for homework notifications
     language: 'de',                                // Language of the notification: 'de' or 'en'
@@ -63,17 +70,19 @@ const CALENDAR_CONFIG = {
 
 const SHEET_CONFIG = {
     webAppUrl: '<YOUR_SHEET_WEB_APP_URL>',         // /exec URL of SheetWebApp.gs deployed in the class spreadsheet
-    secret: '<CHOOSE_A_LONG_RANDOM_SECRET>',  // Must match SHEET_WEB_APP_SECRET in SheetWebApp.gs
+    secret: getScriptProperty('SHEET_SECRET'),     // Script property SHEET_SECRET, must match SHEET_WEB_APP_SECRET in SheetWebApp.gs
     syncDaysBack: 7,                               // How many days back to sync Lehrstoff and Hausübung
     schoolYearStart: '2026-09-07',                 // Used by backfillSheet()
 };
 
 // Open homework as SMS from your own Android phone with the app "SMS Gateway for Android" (https://sms-gate.app)
+// Not configured (no SMS_GATEWAY_USERNAME script property) = sendSms() is skipped
 const SMS_CONFIG = {
     url: 'https://api.sms-gate.app/3rdparty/v1/messages', // Cloud mode of the app
-    username: '<YOUR_SMS_GATEWAY_USERNAME>',       // Shown on the Home tab of the app
-    password: '<YOUR_SMS_GATEWAY_PASSWORD>',       // Shown on the Home tab of the app
-    phoneNumbers: ['<+43YOUR_NUMBER>'],            // Recipients in international format
+    username: getScriptProperty('SMS_GATEWAY_USERNAME'),  // Shown on the Home tab of the app
+    password: getScriptProperty('SMS_GATEWAY_PASSWORD'),  // Shown on the Home tab of the app
+    // Script property SMS_PHONE_NUMBERS, comma-separated, international format (e.g. +43664...)
+    phoneNumbers: getScriptProperty('SMS_PHONE_NUMBERS').split(',').map(number => number.trim()).filter(Boolean),
     daysAhead: 3,                                  // Open homework of the next N days
     language: 'de',                                // Language of the SMS: 'de' or 'en'
     simNumber: null,                               // SIM slot (1-3) for dual SIM phones, null = setting of the app
@@ -83,16 +92,19 @@ const SMS_CONFIG = {
 function runDaily(){
     //Step 1: Notify about homework
     sendNotifications();
-  
+
     //Step 2: Sync the homework
     syncCalendar();
 
     //Step 3: Write Lehrstoff and Hausübung to the class spreadsheet
     syncSheet();
+
+    //Step 4: Send open homework as SMS (skipped if not configured)
+    sendSms();
 }
 
 function sendNotifications() {
-  console.log('🔔 Sending notifications...');
+  console.log('Sending notifications...');
   sendHomeworkEmail(UNTIS_CONFIG, MAIL_NOTIFICATION_CONFIG.email, MAIL_NOTIFICATION_CONFIG.homeworkDaysAhead, MAIL_NOTIFICATION_CONFIG.titlePrefix, MAIL_NOTIFICATION_CONFIG.language);
 }
 
@@ -107,34 +119,38 @@ function syncCalendar(){
 }
 
 function syncHomework(){
-  console.log('📚 Syncing homework to calendar...');
+  console.log('Syncing homework to calendar...');
   syncHomeworkToCalendar(UNTIS_CONFIG, CALENDAR_CONFIG.homework.calendarId, CALENDAR_CONFIG.homework.syncDaysAhead);
 }
 
 function syncTimetable(){
-  console.log('📅 Syncing timetable to calendar...');
+  console.log('Syncing timetable to calendar...');
     syncTimetableToCalendarWorkflow(UNTIS_CONFIG, CALENDAR_CONFIG.timetable.calendarId, CALENDAR_CONFIG.timetable.syncDaysAhead);
 }
 
 function sendSms(){
+  if (!SMS_CONFIG.username || !SMS_CONFIG.password || SMS_CONFIG.phoneNumbers.length === 0) {
+    console.log('SMS not configured (script properties SMS_GATEWAY_USERNAME, SMS_GATEWAY_PASSWORD, SMS_PHONE_NUMBERS) - skipped');
+    return;
+  }
   sendHomeworkSms(UNTIS_CONFIG, SMS_CONFIG);
 }
 
 function syncSheet(){
-  console.log('📝 Syncing Lehrstoff and Hausübung to spreadsheet...');
+  console.log('Syncing Lehrstoff and Hausübung to spreadsheet...');
   syncLessonsToSheet(UNTIS_CONFIG, SHEET_CONFIG, SHEET_CONFIG.syncDaysBack);
 }
 
 function backfillSheet(){
   // Many requests (one per lesson) - if this hits the 6 minute limit, temporarily change schoolYearStart and run it in parts
   const daysBack = Math.ceil((new Date() - new Date(SHEET_CONFIG.schoolYearStart)) / (24 * 60 * 60 * 1000));
-  console.log(`📝 Backfilling the last ${daysBack} days to spreadsheet...`);
+  console.log(`Backfilling the last ${daysBack} days to spreadsheet...`);
   syncLessonsToSheet(UNTIS_CONFIG, SHEET_CONFIG, daysBack);
 }
 
 
 function quickTest() {
-    console.log('🚀 Starting WebUntis API test...');
+    console.log('Starting WebUntis API test...');
     // Test with the new parameterized function
     testWebUntisAPI(UNTIS_CONFIG);
 }
@@ -144,7 +160,7 @@ function quickTest() {
  * Test: Send Home Assistant notification with homework summary
  */
 function homeAssistantNotification() {
-    console.log('🏠 Testing Home Assistant homework notification...');
+    console.log('Testing Home Assistant homework notification...');
     
     try {
         // Get homework list for next 2 days
@@ -163,21 +179,21 @@ function homeAssistantNotification() {
             });
             
             if (result.success) {
-                console.log('✅ Home Assistant notification sent successfully!');
-                console.log('📱 Notification details:', result.data);
-                console.log(`📚 Found ${homeworkList.length} homework assignments`);
+                console.log('Home Assistant notification sent successfully');
+                console.log('Notification details:', result.data);
+                console.log(`Found ${homeworkList.length} homework assignments`);
             } else {
-                console.error('❌ Failed to send Home Assistant notification:', result.error);
+                console.error('Failed to send Home Assistant notification:', result.error);
             }
         } else {
-            console.log('😎 No homework found for the next 2 days - notification not sent');
+            console.log('No homework found for the next 2 days - notification not sent');
         }
-        
+
         // Clean up session
         clearWebUntisApiInstance();
-        
+
     } catch (error) {
-        console.error('❌ Test failed:', error.toString());
+        console.error('Test failed:', error.toString());
         clearWebUntisApiInstance();
     }
 }
