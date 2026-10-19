@@ -230,6 +230,32 @@ function createMailTransportOptions(emailConfig) {
 }
 
 /**
+ * Line in the event description that identifies the homework, so the same homework is found
+ * again on the next run even if its text or due date has changed
+ * @param {Object} hw - Homework from WebUntis
+ * @returns {string}
+ */
+function homeworkIdMarker(hw) {
+    return `WebUntis-ID: ${hw.id}`;
+}
+
+/**
+ * Find the calendar event of a homework between two dates (Google Apps Script)
+ * Events created before homeworkIdMarker() existed are matched by title and text
+ * @param {Calendar} calendar - Apps Script calendar
+ * @param {Object} hw - Homework from WebUntis
+ * @param {string} title - Event title
+ * @param {Date} from - Start of the search window
+ * @param {Date} to - End of the search window
+ * @returns {CalendarEvent|undefined}
+ */
+function findHomeworkEvent(calendar, hw, title, from, to) {
+    const events = calendar.getEvents(from, to);
+    return events.find(event => event.getDescription().includes(homeworkIdMarker(hw))) ||
+        events.find(event => event.getTitle().includes(title) && event.getDescription().includes(hw.text || 'No description'));
+}
+
+/**
  * Add homework to Google Calendar as tasks
  * Creates tasks for the day before the due date instead of events on the due date
  * Google Apps Script version - use as-is
@@ -349,15 +375,11 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                 if (opts.createAsTask) {
                     // Create as task (all-day reminder)
                     const taskTitle = `📝 ${subject} - Due Tomorrow`;
-                    const taskNotes = `Subject: ${subject}\nDue Date: ${dueDate}\nReminder: ${opts.reminderDaysBefore} day(s) before due date\n\n${hw.text || 'No description'}\n\nAdded by WebUntis API`;
-                    
-                    // Check if task already exists for this reminder date
-                    const existingEvents = calendar.getEventsForDay(reminderDate);
-                    const existingTask = existingEvents.find(event => 
-                        event.getTitle().includes(taskTitle) && 
-                        event.getDescription().includes(hw.text || 'No description')
-                    );
-                    
+                    const taskNotes = `Subject: ${subject}\nDue Date: ${dueDate}\nReminder: ${opts.reminderDaysBefore} day(s) before due date\n\n${hw.text || 'No description'}\n\n${homeworkIdMarker(hw)}\nAdded by WebUntis API`;
+
+                    // Check if task already exists (search until the due date, so a moved due date is found too)
+                    const existingTask = findHomeworkEvent(calendar, hw, taskTitle, today, new Date(dueDateObj.getTime() + 24 * 60 * 60 * 1000));
+
                     if (!existingTask) {
                         // Create new all-day task/event
                         const eventOptions = {
@@ -375,9 +397,12 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                         console.log(`Added task: ${taskTitle} on ${reminderDateFormatted}`);
                         addedCount++;
                     } else {
-                        // Update existing task if description changed
-                        if (!existingTask.getDescription().includes(taskNotes)) {
+                        // Update existing task if text, title or reminder date changed
+                        const dateChanged = WebUntisAPI.formatDate(existingTask.getAllDayStartDate()) !== WebUntisAPI.formatDate(reminderDate);
+                        if (!existingTask.getDescription().includes(taskNotes) || existingTask.getTitle() !== taskTitle || dateChanged) {
+                            existingTask.setTitle(taskTitle);
                             existingTask.setDescription(taskNotes);
+                            if (dateChanged) existingTask.setAllDayDate(reminderDate);
                             console.log(`Updated task: ${taskTitle}`);
                             updatedCount++;
                         }
@@ -385,15 +410,11 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                 } else {
                     // Create as event (original behavior - on due date)
                     const title = `📚 ${subject} - Homework Due`;
-                    const description = `Subject: ${subject}\nDue: ${dueDate}\n\n${hw.text || 'No description'}\n\nAdded by WebUntis API`;
-                    
-                    // Check if event already exists
-                    const existingEvents = calendar.getEventsForDay(dueDateObj);
-                    const existingEvent = existingEvents.find(event => 
-                        event.getTitle().includes(title) && 
-                        event.getDescription().includes(hw.text || 'No description')
-                    );
-                    
+                    const description = `Subject: ${subject}\nDue: ${dueDate}\n\n${hw.text || 'No description'}\n\n${homeworkIdMarker(hw)}\nAdded by WebUntis API`;
+
+                    // Check if event already exists (search until the due date, so a moved due date is found too)
+                    const existingEvent = findHomeworkEvent(calendar, hw, title, today, new Date(dueDateObj.getTime() + 24 * 60 * 60 * 1000));
+
                     if (!existingEvent) {
                         // Create new event
                         const eventOptions = {
@@ -409,9 +430,12 @@ async function syncHomeworkToCalendar(config, calendarId = null, days = 7, optio
                         console.log(`Added to calendar: ${title} on ${dueDate}`);
                         addedCount++;
                     } else {
-                        // Update existing event if description changed
-                        if (!existingEvent.getDescription().includes(description)) {
+                        // Update existing event if text, title or due date changed
+                        const dateChanged = WebUntisAPI.formatDate(existingEvent.getStartTime()) !== WebUntisAPI.formatDate(dueDateObj);
+                        if (!existingEvent.getDescription().includes(description) || existingEvent.getTitle() !== title || dateChanged) {
+                            existingEvent.setTitle(title);
                             existingEvent.setDescription(description);
+                            if (dateChanged) existingEvent.setTime(dueDateObj, dueDateObj);
                             console.log(`Updated calendar event: ${title}`);
                             updatedCount++;
                         }
@@ -505,15 +529,31 @@ async function syncHomeworkToCalendarNodejs(config, auth, calendarId = 'primary'
                     description: `Subject: ${subject}\nDue Date: ${dueDate}\nReminder: ${opts.reminderDaysBefore} day(s) before due date\n\n${hw.text || 'No description'}\n\nAdded by WebUntis API`
                 };
 
+                // Fixed event ID per homework (Google allows only a-v and 0-9): a later run gets 409 and updates the event instead of duplicating it
+                const eventId = `untis${hw.id}`;
                 try {
                     await calendar.events.insert({
                         calendarId: calendarId,
-                        resource: eventData
+                        resource: { id: eventId, ...eventData }
                     });
                     WebUntisAPI.logVerbose(`Added: ${eventData.summary} on ${eventData.start.date}`);
                     addedCount++;
                 } catch (error) {
-                    console.error(`Error adding homework event ${eventData.summary}: ${error.toString()}`);
+                    if (Number(error.code || error.response?.status) !== 409) {
+                        console.error(`Error adding homework event ${eventData.summary}: ${error.toString()}`);
+                        continue;
+                    }
+                    try {
+                        await calendar.events.update({
+                            calendarId: calendarId,
+                            eventId: eventId,
+                            resource: eventData
+                        });
+                        WebUntisAPI.logVerbose(`Updated: ${eventData.summary} on ${eventData.start.date}`);
+                        updatedCount++;
+                    } catch (updateError) {
+                        console.error(`Error updating homework event ${eventData.summary}: ${updateError.toString()}`);
+                    }
                 }
             }
         }
