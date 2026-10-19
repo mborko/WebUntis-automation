@@ -11,7 +11,7 @@ The root directory contains standalone JavaScript files that work in both Node.j
 - `Sheets.js` - Sends Lehrstoff and Hausübung to the spreadsheet web app (optional)
 - `SheetWebApp.js` - Web app bound to the class spreadsheet that writes the cells (optional, separate project)
 - `Code.gs` - Complete automation starter with configuration
-- `AppsScript-Test.js` - Test functions and examples
+- `Sms.js` - Open homework as SMS (optional, used by `sendSms()` in `runDaily()`)
 - `HomeAssistant.js` - Home Assistant integration (optional)
 
 ## Google Apps Script Deployment
@@ -31,7 +31,7 @@ The root directory contains standalone JavaScript files that work in both Node.j
 2. **Create Google.gs**: Copy the entire content from `Google.js` into a new file named `Google.gs`  
 3. **Create Sheets.gs**: Copy the entire content from `Sheets.js` into a new file named `Sheets.gs` (optional, for the spreadsheet sync - see Step 3b)
 4. **Create Code.gs**: Copy content from `Code.gs` into a new file named `Code.gs` (main automation)
-5. **Create Test.gs**: Copy content from `AppsScript-Test.js` and rename to `Test.gs` (optional, for testing)
+5. **Create Sms.gs**: Copy the entire content from `Sms.js` into a new file named `Sms.gs` (needed by `runDaily()`; skip it only if you remove `sendSms()` from `runDaily()`)
 
 #### Why Multiple Files Are Needed:
 - `WebUntis.gs` contains the core API functions like `getWebUntisApiInstance()` and `WebUntisAPI` class
@@ -45,8 +45,9 @@ Your Google Apps Script Project/
 ├── WebUntis.gs          (Copy content from WebUntis.js)
 ├── Google.gs            (Copy content from Google.js)
 ├── Sheets.gs            (Copy content from Sheets.js - optional)
+├── Sms.gs               (Copy content from Sms.js - optional, SMS)
 ├── Code.gs              (Copy content from Code.gs - main automation)
-└── Test.gs              (Copy content from AppsScript-Test.js - optional)
+└── (HomeAssistant.gs)   (Copy content from HomeAssistant.js - optional)
 ```
 
 ### Step 3: Configure Your Credentials

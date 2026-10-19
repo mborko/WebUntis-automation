@@ -1,120 +1,80 @@
-# WebUntis API Project Structure
+# Project Structure
 
-## Overview
-This project provides WebUntis API wrappers for both Node.js and Google Apps Script environments.
+The automation for one student's WebUntis account: homework email, Home Assistant and SMS notifications,
+Google Calendar sync and writing Lehrstoff/Hausübung plus teacher names into a class Google Sheet.
+
+The same source files run in **Node.js** (`StartNode.js`) and in **Google Apps Script** (`Code.gs`).
+Apps Script puts all files into one global scope, so shared files must not depend on Node-only imports at top level.
 
 ## File Structure
 
 ```
-WebUntis/
-├── WebUntis.js                           # Main Node.js API wrapper
-├── test.js                               # Node.js test script
-├── formatted_homework_example.js          # Node.js usage example
-├── FORMATTED_HOMEWORK_USAGE.md           # Documentation for formatted homework method
-└── GoogleAppsScript/                     # Google Apps Script files
-    ├── WebUntis.gs                       # Main Google Apps Script API wrapper
-    ├── Test.gs                           # Google Apps Script test functions
-    ├── Examples.gs                       # Advanced usage examples
-    └── README.md                         # Google Apps Script setup guide
+WebUntis-automation/
+├── WebUntis.js            # WebUntisAPI class: login, homework, timetable, Lehrstoff, texts, formatting
+├── Google.js              # Email (Gmail / nodemailer) and Google Calendar sync
+├── Sheets.js              # Client of the sheet web app (sends Lehrstoff and Hausübung)
+├── Sms.js                 # Open homework as SMS via SMS Gateway for Android
+├── HomeAssistant.js       # Home Assistant notification and sensor
+├── SheetWebApp.js         # Container-bound Apps Script in the class spreadsheet (writes the cells)
+├── StartNode.js           # Node.js CLI (actions, argument parsing)
+├── Code.gs                # Apps Script entry points (runDaily, quickTest, ...) and non-secret config
+├── config.template.js     # Documented Node.js configuration (copy to config.js)
+├── config.js              # Real Node.js configuration with credentials (gitignored)
+├── docs/                  # Documentation
+├── example/               # Empty class spreadsheet template
+└── package.json           # Node.js dependencies (googleapis, node-fetch, nodemailer)
 ```
 
-## Node.js Files
+## Files
 
-### `WebUntis.js`
-- Main API wrapper class for Node.js
-- Includes WebUntisAPI and EventNotificationManager classes
-- Uses fetch() API and async/await
-- Exports modules for require()
+### `WebUntis.js` (Node.js and Apps Script)
+- `WebUntisAPI`: JSON-RPC login, homework (REST), timetable, Lehrstoff per lesson, teacher names (office hours)
+- `getWebUntisApiInstance()` / `clearWebUntisApiInstance()`: reuse one logged-in session per run
+- `testWebUntisAPI()`: login and print the homework of the next 5 days
+- Texts for email, Home Assistant and SMS in German and English (`WebUntisAPI.getTexts()`)
+- `WebUntisAPI.verbose` / `logVerbose()`: details only with `--verbose`
 
-### `test.js`
-- Comprehensive test script for Node.js
-- Tests authentication, homework retrieval, and formatted output
-- Includes credential configuration section
+### `Google.js` (Node.js and Apps Script)
+- Email: `createHomeworkEmail()` (shared), `sendHomeworkEmail()` (GmailApp), `sendHomeworkEmailNodejs()` (nodemailer)
+- Calendar: `syncHomeworkToCalendar()` / `syncHomeworkToCalendarNodejs()` create one reminder per homework;
+  `syncTimetableToCalendarWorkflow()` / `syncTimetableToCalendarNodejs()` sync the lessons
+- Homework events are identified by a `WebUntis-ID` line (Apps Script) or the event ID `untis<id>` (Node.js),
+  so a second run updates the event instead of creating a duplicate
 
-### `formatted_homework_example.js`
-- Simple example showing formatted homework usage
-- Demonstrates different time horizons (3, 7, 14 days)
-- Shows both open and completed homework filtering
+### `Sheets.js` (Node.js and Apps Script)
+- Sends the collected Lehrstoff and Hausübung entries to the sheet web app (`syncLessonsToSheet()`)
+- Uses `UrlFetchApp` in Apps Script and `fetch` in Node.js; never touches the spreadsheet directly
 
-### `FORMATTED_HOMEWORK_USAGE.md`
-- Complete documentation for the getFormattedHomework() method
-- Usage examples and parameter explanations
-- Integration patterns for notification systems
+### `Sms.js` (Node.js and Apps Script)
+- `sendHomeworkSms()`: open homework of the next days as compact GSM-7 text, sent via the gateway app on your phone
+- `sendSmsViaGateway()`: HTTP call to the SMS Gateway for Android API
 
-## Google Apps Script Files
+### `HomeAssistant.js` (Node.js and Apps Script)
+- `sendHomeworkToHomeAssistant()`: notification through a Home Assistant service
+- `updateHomeworkSensor()`: updates a Home Assistant sensor entity with the current homework status
 
-### `GoogleAppsScript/WebUntis.gs`
-- Main API wrapper adapted for Google Apps Script
-- Uses UrlFetchApp instead of fetch()
-- Synchronous execution (no async/await)
-- Includes example functions for email and calendar integration
+### `SheetWebApp.js` (separate Apps Script project bound to the spreadsheet)
+- `doPost()`: checks the shared secret and writes the entries into the tab of each subject
+- Only has access to that one spreadsheet (`@OnlyCurrentDoc`)
+- Changes take effect only after a new deployment in the spreadsheet's Apps Script editor
 
-### `GoogleAppsScript/Test.gs`
-- Simple test functions for Google Apps Script
-- Demonstrates parameterized function usage
-- Examples for email and calendar automation
+### `StartNode.js` (Node.js only)
+- CLI actions: `email`, `homework`, `ha`, `sms`, `timetable`, `lessons`, `teachers`, `sheet`, `all`
+- `test` shows the configuration status and tests the login; `quick` prints the open homework
+- Exit code 1 if an action fails
 
-### `GoogleAppsScript/Examples.gs`
-- Advanced usage examples
-- Family notification systems
-- Multiple calendar integration
-- Automation functions for triggers
-- Configuration validation
+### `Code.gs` (Apps Script only)
+- Non-secret configuration objects; secrets are read with `getScriptProperty()` (Project Settings → Script Properties)
+- `runDaily()`: email, calendar sync, sheet sync and SMS, in this order
+- Manual functions: `quickTest()`, `backfillSheet()`, `homeAssistantNotification()`
 
-### `GoogleAppsScript/README.md`
-- Complete setup guide for Google Apps Script
-- Step-by-step instructions
-- Trigger setup examples
-- Troubleshooting guide
+## Documentation
 
-## Key Features
+- [`GOOGLE_APPS_SCRIPT_DEPLOYMENT.md`](GOOGLE_APPS_SCRIPT_DEPLOYMENT.md): setting up the Apps Script projects, Script Properties and triggers
+- [`../README.md`](../README.md): overview, Node.js setup, scheduled runs
 
-### Core Functionality
-- ✅ WebUntis authentication (JSON-RPC)
-- ✅ Homework retrieval (REST API)
-- ✅ Bearer token management
-- ✅ Date formatting utilities
-- ✅ Error handling and logging
+## Conventions
 
-### Formatted Output
-- ✅ Clean, readable homework formatting
-- ✅ Subject, due date, and description display
-- ✅ Completion status indicators (✅ / 📋)
-- ✅ Customizable time horizons
-- ✅ Filtering for open/completed assignments
-
-### Google Apps Script Integration
-- ✅ Gmail email notifications
-- ✅ Google Calendar event creation
-- ✅ Automated triggers (daily/weekly)
-- ✅ Multiple recipient support
-- ✅ Custom calendar integration
-
-### Node.js Features
-- ✅ Module export system
-- ✅ Async/await support
-- ✅ Event notification system
-- ✅ Periodic checking capabilities
-- ✅ Callback-based notifications
-
-## Getting Started
-
-### For Node.js
-1. Update credentials in `test.js`
-2. Run: `node test.js`
-3. Use `WebUntis.js` in your projects
-
-### For Google Apps Script
-1. Go to [script.google.com](https://script.google.com)
-2. Create new project
-3. Copy content from `GoogleAppsScript/WebUntis.gs`
-4. Follow setup guide in `GoogleAppsScript/README.md`
-
-## Recent Changes
-- ✅ Renamed EventNotification.js → WebUntis.js
-- ✅ Moved all Google Apps Script files to GoogleAppsScript/ folder
-- ✅ Removed Google Apps Script prefixes/suffixes from filenames
-- ✅ Updated all import statements and references
-- ✅ Maintained full functionality across both environments
-
-This structure provides a clean separation between Node.js and Google Apps Script implementations while maintaining the same core functionality in both environments.
+- One result line per action in the log, no emoji in log output; details only via `logVerbose()`
+- Node.js-only functions end in `Nodejs`; the Apps Script variant has the same name without the suffix
+- New config options go into `config.template.js` and into the config block of `Code.gs`

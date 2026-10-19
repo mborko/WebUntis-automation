@@ -14,12 +14,6 @@ Step-by-step guide for deploying the JavaScript files to Google Apps Script, inc
 - Configuring triggers and automation
 - Testing and troubleshooting
 
-### 📚 [Formatted Homework Usage](FORMATTED_HOMEWORK_USAGE.md)
-Examples and documentation for homework formatting functionality, including:
-- Homework formatting options
-- Custom formatting examples
-- Integration patterns
-
 ## Navigation
 
 - **Back to main project**: [../README.md](../README.md)
@@ -30,4 +24,5 @@ Examples and documentation for homework formatting functionality, including:
 - **Core API**: [`WebUntis.js`](../WebUntis.js)
 - **Google Integration**: [`Google.js`](../Google.js)
 - **Home Assistant**: [`HomeAssistant.js`](../HomeAssistant.js)
-- **Examples**: [`Examples.js`](../Examples.js)
+- **SMS**: [`Sms.js`](../Sms.js)
+- **Apps Script entry points**: [`Code.gs`](../Code.gs)
