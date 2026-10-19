@@ -34,17 +34,18 @@ See the [full deployment guide](docs/GOOGLE_APPS_SCRIPT_DEPLOYMENT.md) for compl
 
 ## Files Structure
 
-### Core API Files
+### Shared Files (Node.js and Google Apps Script)
 - `WebUntis.js` - WebUntis API wrapper and session management
 - `Google.js` - Google services integration (Gmail, Calendar)
-- `Sheets.js` - Lehrstoff/Hausübung sync to a Google Sheet (Apps Script and Node.js)
-- `SheetWebApp.js` - Web app bound to the class spreadsheet that writes the cells (only needs access to that one sheet)
-- `HomeAssistant.js` - Home Assistant integration and automation
-- `Examples.js` - Usage examples and automation functions
+- `Sheets.js` - Lehrstoff/Hausübung sync to a Google Sheet (client of the web app)
+- `HomeAssistant.js` - Home Assistant integration
+- `Sms.js` - Open homework as SMS via SMS Gateway for Android
 
-### Utility Files
-- `StartAppsScript.js` - Google Apps Script starter and test functions
-- `formatted_homework_example.js` - Example homework formatting
+### Node.js and Apps Script Entry Points
+- `StartNode.js` - Node.js CLI (`node StartNode.js help`)
+- `config.template.js` - Documented Node.js configuration (copy to `config.js`)
+- `Code.gs` - Apps Script entry points (`runDaily()`, `quickTest()`, ...); secrets go into Script Properties
+- `SheetWebApp.js` - Separate web app bound to the class spreadsheet that writes the cells (only needs access to that one sheet)
 
 ## Documentation
 
@@ -52,7 +53,6 @@ All documentation is located in the `docs/` directory:
 
 - **[Project Structure](docs/PROJECT_STRUCTURE.md)** - Complete project architecture overview
 - **[Google Apps Script Deployment](docs/GOOGLE_APPS_SCRIPT_DEPLOYMENT.md)** - Step-by-step deployment guide
-- **[Formatted Homework Usage](docs/FORMATTED_HOMEWORK_USAGE.md)** - Homework formatting examples
 
 ## Key Features
 
@@ -108,9 +108,9 @@ await sendHomeworkToHomeAssistant(MY_CONFIG, HA_CONFIG, 3);
 ## Quick Start
 
 ### For Google Apps Script
-1. Copy `WebUntis.js` and `Google.js` to Google Apps Script
-2. Update configuration in `StartAppsScript.js`
-3. Run `StartAppScript()` function
+1. Copy `WebUntis.js`, `Google.js`, `Sheets.js` and `Code.gs` to a Google Apps Script project (see the [deployment guide](docs/GOOGLE_APPS_SCRIPT_DEPLOYMENT.md))
+2. Update the non-secret settings in `Code.gs` and add the credentials as Script Properties (Project Settings → Script Properties)
+3. Run `quickTest()` to check the login, then `runDaily()`
 
 ### For Node.js
 1. Install dependencies: `npm install`
@@ -249,7 +249,7 @@ Shortcuts:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Apache License 2.0 - see [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
