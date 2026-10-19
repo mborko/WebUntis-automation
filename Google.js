@@ -129,27 +129,21 @@ async function sendHomeworkEmail(config, emailAddress, days = 3, emailPrefix = n
         throw new Error('Email address parameter is required');
     }
 
-    try {
-        // Get API instance using the global function from WebUntis.js
-        const api = await getWebUntisApiInstance(config);
-        const email = await createHomeworkEmail(api, days, emailPrefix, language);
+    // Get API instance using the global function from WebUntis.js
+    const api = await getWebUntisApiInstance(config);
+    const email = await createHomeworkEmail(api, days, emailPrefix, language);
 
-        if (email) {
-            GmailApp.sendEmail(recipients.join(','), email.subject, email.text, {
-                htmlBody: email.html,
-                from: Session.getActiveUser().getEmail()
-            });
-            console.log(`Email sent to ${recipients.join(', ')} (${email.homeworkCount} homework, Lehrstoff of ${email.contentCount} subjects)`);
-        } else {
-            console.log(`No homework for the next ${days} days and no Lehrstoff today - email not sent`);
-        }
-
-        // Note: We don't logout here as we're reusing the session
-
-    } catch (error) {
-        console.error('Error sending homework email:', error.toString());
-        throw error;
+    if (email) {
+        GmailApp.sendEmail(recipients.join(','), email.subject, email.text, {
+            htmlBody: email.html,
+            from: Session.getActiveUser().getEmail()
+        });
+        console.log(`Email sent to ${recipients.join(', ')} (${email.homeworkCount} homework, Lehrstoff of ${email.contentCount} subjects)`);
+    } else {
+        console.log(`No homework for the next ${days} days and no Lehrstoff today - email not sent`);
     }
+
+    // Note: We don't logout here as we're reusing the session
 }
 
 /**

@@ -152,7 +152,7 @@ function backfillSheet(){
 function quickTest() {
     console.log('Starting WebUntis API test...');
     // Test with the new parameterized function
-    testWebUntisAPI(UNTIS_CONFIG);
+    testWebUntisAPI(UNTIS_CONFIG).catch(error => console.error('WebUntis test failed:', error.toString()));
 }
 
 
