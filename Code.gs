@@ -168,7 +168,7 @@ async function homeAssistantNotification() {
         const homeworkList = await api.getHomeworkList(2, true); // Next 2 days, open only
         
         // Only send notification if homework exists
-        if (homeworkList) {
+        if (homeworkList.length > 0) {
             const homeworkSummary = api.formatHomework(homeworkList, 2, true);
             
             // Send notification using callHomeAssistantAPI with telegram_bot.send_message
