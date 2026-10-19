@@ -132,6 +132,115 @@ Example: `node StartNode.js lessons teachers --days 14`. Add `--overwrite` to re
 
 SMS: the open homework (compact, without emojis and due dates) is sent from your own Android phone with the open-source app [SMS Gateway for Android](https://sms-gate.app), so the SMS costs what your tariff charges. Install the app on a phone that stays switched on, start it in Cloud mode and put the username and password from its Home tab plus the recipients (`+43...`) into `SMS_CONFIG`. Test it with your own number first: `node StartNode.js sms --verbose`.
 
+### Installing Node.js as a local user with nvm (e.g. Raspberry Pi)
+
+If Node.js is not installed system-wide, install it for your user with [nvm](https://github.com/nvm-sh/nvm)
+(no `sudo` needed, everything goes into `~/.nvm`):
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash   # check the latest version on GitHub
+source ~/.bashrc                 # or open a new terminal, so the nvm command is available
+nvm install --lts                # current LTS version
+nvm alias default 'lts/*'        # use it in every new shell
+node --version && npm --version
+```
+
+Then install the dependencies in the repository folder and test the setup:
+```bash
+cd /path/to/WebUntis-automation
+npm install
+cp config.template.js config.js  # add your credentials
+node StartNode.js test
+```
+
+nvm only sets up `PATH` in interactive shells, so systemd does not find `node`, and the real path
+(`~/.nvm/versions/node/v<version>/bin/node`) changes with every Node.js update. Create a stable link to use in the
+service file:
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(nvm which default)" ~/.local/bin/node
+~/.local/bin/node --version
+```
+In `webuntis-automation.service` below, replace `/usr/bin/node` with `/home/<user>/.local/bin/node` (or `%h/.local/bin/node`).
+After a Node.js update (`nvm install --lts --reinstall-packages-from=current`), run the `ln -sf` command again and
+`npm install` in the repository folder; old versions can be removed with `nvm uninstall <version>`.
+
+### Scheduled runs with a systemd user timer (Linux)
+
+To run the actions automatically on your own computer, e.g. every weekday at 14:30, create two files in
+`~/.config/systemd/user/` (replace `/path/to/WebUntis-automation`, check the node path with `which node`; with nvm
+use the link from the section above).
+
+`webuntis-automation.service`:
+```ini
+[Unit]
+Description=Run WebUntis Automation
+# At most 3 starts (first run + 2 retries) per hour, so a permanent error does not loop forever
+StartLimitIntervalSec=1h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/WebUntis-automation
+# Wait until NetworkManager reports a connection (e.g. after resume from suspend)
+ExecStartPre=/usr/bin/nm-online --quiet --timeout=60
+# Sheet sync first; the email only runs if it succeeded (a failed ExecStart skips the following ones)
+ExecStart=/usr/bin/node /path/to/WebUntis-automation/StartNode.js lessons
+ExecStart=/usr/bin/node /path/to/WebUntis-automation/StartNode.js email
+# Covers ExecStartPre and all ExecStart lines together, so it must be longer than the nm-online timeout
+TimeoutStartSec=180
+Restart=on-failure
+RestartSec=5min
+```
+
+`webuntis-automation.timer`:
+```ini
+[Unit]
+Description=Run WebUntis Automation every weekday at 14:30
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 14:30:00
+# Catch up a missed run when the computer was off at 14:30
+Persistent=true
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+```
+
+Deploy and test:
+```bash
+loginctl enable-linger $USER                           # once: run user timers without being logged in (e.g. Raspberry Pi)
+systemctl --user daemon-reload                         # reload after creating or changing the unit files
+systemctl --user enable --now webuntis-automation.timer
+systemctl --user start webuntis-automation.service     # run once now to test (sends the email!)
+systemctl --user list-timers --all                     # check the next run
+journalctl --user -u webuntis-automation.service -e    # logs
+```
+
+Notes:
+- Actions in a single `node StartNode.js lessons email` call always run in a fixed order with `email` first. If `lessons`
+  then fails, the exit code is 1 and `Restart=on-failure` sends the email again on every retry. Separate `ExecStart`
+  lines run in order and stop at the first failure, so the email is only sent after `lessons` worked. A retry after a
+  failed email runs `lessons` again, which is safe because it only appends what is missing.
+- Without `loginctl enable-linger $USER`, user timers only run while you are logged in (use `sudo` if it fails with
+  a permission error). Lingering is stored as an empty file per user in `/var/lib/systemd/linger/`. To check it:
+  ```bash
+  loginctl show-user $USER -p Linger                       # Linger=yes
+  ls /var/lib/systemd/linger/                              # file with your username
+  systemctl status user@$(id -u).service                   # after a reboot without login: active (running)
+  ```
+  To check that a scheduled run happened without a login, reboot, don't log in until after the next run time, then
+  compare the run time with your first login:
+  ```bash
+  systemctl --user list-timers --all                       # LAST column = time of the last run
+  journalctl --user -u webuntis-automation.service -e      # log output with timestamps
+  last -n 3 $USER                                          # your login times
+  ```
+  An SSH login also starts the user manager, so only runs before the first login after the reboot prove it works.
+- If the computer is suspended at 14:30, the run starts right after resume; with `Persistent=true` a run missed while
+  the computer was off starts after the next boot (possibly on a weekend).
+- `nm-online` needs NetworkManager. Without it, drop the `ExecStartPre` line and rely on the retries.
+
 Shortcuts:
 - `npm start` - Run the default actions
 - `npm test` - Show configuration status and test the WebUntis login
