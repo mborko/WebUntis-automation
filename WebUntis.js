@@ -930,125 +930,10 @@ class WebUntisAPI {
 // Set to true for detailed logs, e.g. skipped lessons and every calendar/sheet change
 WebUntisAPI.verbose = false;
 
-/**
- * Event Notification Manager
- * Manages notifications for WebUntis events
- */
-class EventNotificationManager {
-    constructor(webUntisAPI) {
-        this.api = webUntisAPI;
-        this.notificationCallbacks = [];
-    }
-
-    /**
-     * Add a notification callback
-     * @param {Function} callback - Function to call when events are found
-     */
-    addNotificationCallback(callback) {
-        if (typeof callback === 'function') {
-            this.notificationCallbacks.push(callback);
-        }
-    }
-
-    /**
-     * Check for upcoming events and trigger notifications
-     * @param {number} hoursAhead - How many hours ahead to check
-     */
-    async checkUpcomingEvents(hoursAhead = 24) {
-        try {
-            const now = new Date();
-            const future = new Date(now.getTime() + (hoursAhead * 60 * 60 * 1000));
-            
-            const startDate = WebUntisAPI.formatDate(now);
-            const endDate = WebUntisAPI.formatDate(future);
-            
-            const homeworkData = await this.api.getHomework(startDate, endDate);
-            const upcomingEvents = this.filterUpcomingHomework(homeworkData.homeworks || [], hoursAhead);
-            
-            if (upcomingEvents.length > 0) {
-                this.triggerNotifications(upcomingEvents);
-            }
-            
-            return upcomingEvents;
-        } catch (error) {
-            console.error('Failed to check upcoming events:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Filter homework that is due within the specified timeframe
-     * @param {Array} homework - Array of homework
-     * @param {number} hoursAhead - Hours ahead to filter
-     * @returns {Array} Filtered upcoming homework
-     */
-    filterUpcomingHomework(homework, hoursAhead) {
-        const now = new Date();
-        const futureTime = now.getTime() + (hoursAhead * 60 * 60 * 1000);
-        
-        return homework.filter(hw => {
-            // Convert WebUntis date format to JavaScript Date
-            const dueDate = this.parseWebUntisDate(hw.dueDate);
-            return dueDate && dueDate.getTime() <= futureTime && dueDate.getTime() > now.getTime() && !hw.completed;
-        });
-    }
-
-    /**
-     * Parse WebUntis date format (YYYYMMDD) to JavaScript Date
-     * @param {number} date - Date in YYYYMMDD format
-     * @returns {Date} JavaScript Date object
-     */
-    parseWebUntisDate(date) {
-        if (!date) return null;
-        
-        const dateStr = date.toString();
-        const year = parseInt(dateStr.substring(0, 4));
-        const month = parseInt(dateStr.substring(4, 6)) - 1; // Month is 0-indexed
-        const day = parseInt(dateStr.substring(6, 8));
-        
-        return new Date(year, month, day);
-    }
-
-    /**
-     * Trigger all notification callbacks
-     * @param {Array} events - Events to notify about
-     */
-    triggerNotifications(events) {
-        this.notificationCallbacks.forEach(callback => {
-            try {
-                callback(events);
-            } catch (error) {
-                console.error('Notification callback error:', error);
-            }
-        });
-    }
-
-    /**
-     * Start periodic checking for events
-     * @param {number} intervalMinutes - Check interval in minutes
-     * @param {number} hoursAhead - Hours ahead to check
-     * @returns {number} Interval ID
-     */
-    startPeriodicCheck(intervalMinutes = 30, hoursAhead = 24) {
-        return setInterval(async () => {
-            await this.checkUpcomingEvents(hoursAhead);
-        }, intervalMinutes * 60 * 1000);
-    }
-
-    /**
-     * Stop periodic checking
-     * @param {number} intervalId - Interval ID to clear
-     */
-    stopPeriodicCheck(intervalId) {
-        clearInterval(intervalId);
-    }
-}
-
 // Export classes for use
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { 
         WebUntisAPI, 
-        EventNotificationManager,
         getWebUntisApiInstance,
         clearWebUntisApiInstance,
         testWebUntisAPI
@@ -1129,28 +1014,22 @@ async function testWebUntisAPI(config, forceLogout = false) {
         };
     }
 
-    try {
-        // Get or reuse API instance
-        const api = await getWebUntisApiInstance(config);
-        
-        console.log('Authentication successful');
-        
-        // Get formatted homework for next 5 days
-        const homework = await api.getFormattedHomework(5, true);
-        console.log('Homework for next 5 days:');
-        console.log(homework);
-        
-        // Optionally logout if requested
-        if (forceLogout) {
-            await api.logout();
-            await clearWebUntisApiInstance();
-            console.log('Logged out and cleared instance');
-        }
-        
-        console.log('Test completed successfully');
-        
-    } catch (error) {
-        console.error('Error:', error.toString());
-        throw error;
+    // Get or reuse API instance (errors are thrown to the caller)
+    const api = await getWebUntisApiInstance(config);
+
+    console.log('Authentication successful');
+
+    // Get formatted homework for next 5 days
+    const homework = await api.getFormattedHomework(5, true);
+    console.log('Homework for next 5 days:');
+    console.log(homework);
+
+    // Optionally logout if requested
+    if (forceLogout) {
+        await api.logout();
+        await clearWebUntisApiInstance();
+        console.log('Logged out and cleared instance');
     }
+
+    console.log('Test completed successfully');
 }
