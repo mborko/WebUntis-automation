@@ -159,20 +159,20 @@ function quickTest() {
 /**
  * Test: Send Home Assistant notification with homework summary
  */
-function homeAssistantNotification() {
+async function homeAssistantNotification() {
     console.log('Testing Home Assistant homework notification...');
     
     try {
         // Get homework list for next 2 days
-        const api = getWebUntisApiInstance(UNTIS_CONFIG);
-        const homeworkList = api.getHomeworkList(2, true); // Next 2 days, open only
+        const api = await getWebUntisApiInstance(UNTIS_CONFIG);
+        const homeworkList = await api.getHomeworkList(2, true); // Next 2 days, open only
         
         // Only send notification if homework exists
         if (homeworkList) {
             const homeworkSummary = api.formatHomework(homeworkList, 2, true);
             
             // Send notification using callHomeAssistantAPI with telegram_bot.send_message
-            const result = callHomeAssistantAPI(HA_CONFIG, 'telegram_bot.send_message', {
+            const result = await callHomeAssistantAPI(HA_CONFIG, 'telegram_bot.send_message', {
                 config_entry_id: '<YOUR_TELEGRAM_CONFIG_ID>',
                 message: homeworkSummary,
                 target: '<YOUR_TELEGRAM_CHAT_ID>'
@@ -190,11 +190,11 @@ function homeAssistantNotification() {
         }
 
         // Clean up session
-        clearWebUntisApiInstance();
+        await clearWebUntisApiInstance();
 
     } catch (error) {
         console.error('Test failed:', error.toString());
-        clearWebUntisApiInstance();
+        await clearWebUntisApiInstance();
     }
 }
 
