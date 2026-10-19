@@ -4,7 +4,7 @@
   "description": "WebUntis API wrapper with Google (Gmail, Calendar) and Home Assistant integration for homework notifications and timetable sync",
   "main": "StartNode.js",
   "scripts": {
-    "start": "node StartNode.js start",
+    "start": "node StartNode.js",
     "test": "node StartNode.js test",
     "quick": "node StartNode.js quick",
     "sheet": "node StartNode.js sheet"
